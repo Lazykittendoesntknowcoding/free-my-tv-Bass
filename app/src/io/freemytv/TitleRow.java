@@ -135,16 +135,21 @@ final class TitleRow {
 
     /**
      * A selected card at either end grows past the row's edge: the whole row slides in by that much, so the grown
-     * card keeps the margin to the screen's edge (`push`: how far a fully selected card grows on each side).
+     * card keeps the margin to the screen's edge (`push`: how far a fully selected card grows on each side). Only
+     * its growth is made up for, never more: a card still sliding in from off screen moves the row no further.
      */
     static void keepInside(RectF[] rects, Spring[] focus, int n, float push, float left, float right) {
         float shift = 0;
         for (int i = 0; i < n; i++) {
-            float grow = push * focus[i].value;
+            float grow = push * Math.min(1, focus[i].value);
             if (grow <= 0) continue;
-            shift += Math.max(0, left - (rects[i].left - grow)) - Math.max(0, rects[i].right + grow - right);
+            shift += clamp(left - (rects[i].left - grow), grow) - clamp(rects[i].right + grow - right, grow);
         }
         if (shift != 0) for (int i = 0; i < n; i++) rects[i].offset(shift, 0);
+    }
+
+    private static float clamp(float overflow, float most) {
+        return Math.max(0, Math.min(most, overflow));
     }
 
     Recs.Pick selected() {

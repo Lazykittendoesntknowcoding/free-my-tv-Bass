@@ -4189,6 +4189,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     if (cards.isEmpty()) {
                         if (tab != WATCH_TAB) return true;     // no rows yet, and the dock is away
                         zone = Z_SHELF;
+                    } else if (tab != WATCH_TAB) {
+                        // Down from the tabs: the first title of the first row (the rows start over).
+                        zone = Z_CARDS;
+                        useRow(0);
+                        cardIndex = 0;
                     } else {
                         zone = Z_CARDS;
                         cardIndex = nearest(cardRects, cards.size(), topRects[topIndex].centerX());
