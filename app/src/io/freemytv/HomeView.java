@@ -3762,7 +3762,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         final int cw = Math.round(watchRects[0].width()), ch = Math.round(watchRects[0].height());
         final java.util.Set<String> keep = new java.util.HashSet<>();
         for (Recs.Pick p : cards) keep.add(p.watchKey);
-        watchArt.keySet().retainAll(keep);
+        // Keep the pictures of titles still on the row, so a card keeps its picture while the list is read again (it
+        // changes every 30 s while something plays).
+        watchArt.keySet().removeIf(id -> !keep.contains(artTitle(id)));
         for (Recs.Pick p : cards) {
             final String key = p.watchKey;
             final java.io.File f = WatchHistory.art(c, key);
@@ -3791,6 +3793,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 });
             });
         }
+    }
+
+    /** A picture's id is "<title key>|<file time>|<width>" (the title key has "|" in it too): its title key. */
+    private static String artTitle(String id) {
+        int last = id.lastIndexOf('|');
+        return id.substring(0, id.lastIndexOf('|', last - 1));
     }
 
     private Bitmap watchArtFor(String key) {
