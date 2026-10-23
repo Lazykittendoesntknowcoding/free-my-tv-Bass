@@ -3287,30 +3287,20 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float cx = base.centerX(), cy = base.centerY() + bh * (s - 1) / 2 - 8 * k * v;
         cell.set(cx - bw * s / 2, cy - bh * s / 2, cx + bw * s / 2, cy + bh * s / 2);
         float r = r0 * s;
-        c.save();
-        c.translate(cx, cy);
-        c.scale(s, s);
-        tmp.set(-bw / 2, -bh / 2, bw / 2, bh / 2);
-        tmp.offset(0, (10 + 14 * f) * k);
-        shadowDeep.setColor(Ui.alpha(0xFF000000, tone(0.14f, 0.32f) + tone(0.2f, 0.28f) * f));
-        shadows.draw(c, tmp, r0, DEEP_BLUR * k, shadowDeep);
-        c.restore();
+        // Until its picture arrives the card is a blank space (no shadow, box or text): pictures come quickly.
         Bitmap img = row.art(p);
         if (img != null) {
+            c.save();
+            c.translate(cx, cy);
+            c.scale(s, s);
+            tmp.set(-bw / 2, -bh / 2, bw / 2, bh / 2);
+            tmp.offset(0, (10 + 14 * f) * k);
+            shadowDeep.setColor(Ui.alpha(0xFF000000, tone(0.14f, 0.32f) + tone(0.2f, 0.28f) * f));
+            shadows.draw(c, tmp, r0, DEEP_BLUR * k, shadowDeep);
+            c.restore();
             roundImage(c, img, cell, r);
-        } else {
-            // Until its picture arrives (or without one): the title on a plain card.
-            fill.setShader(null);
-            fill.setColor(tone(0xFFDADADF, 0xFF2C2C2E));
-            c.drawRoundRect(cell, r, r, fill);
-            if (p.title != null) {
-                fitPaint.set(lCardTitle);
-                fitPaint.setColor(tone(L_DIM, 0xFF98989D));
-                String name = TextUtils.ellipsize(p.title, fitPaint, cell.width() - 32 * k, TextUtils.TruncateAt.END).toString();
-                c.drawText(name, cell.centerX() - fitPaint.measureText(name) / 2, cell.centerY() + Ui.halfCap(fitPaint), fitPaint);
-            }
         }
-        if (f > 0.01f) {
+        if (f > 0.01f && img != null) {
             // Every card has the same size: one sheen and one rim serve them all.
             if (lightSheens.length != 1) {
                 lightSheens = new LinearGradient[1];
