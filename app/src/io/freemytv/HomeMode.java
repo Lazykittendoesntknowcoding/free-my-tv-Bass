@@ -80,6 +80,39 @@ final class HomeMode {
         "com.mediatek.tv.retaildemo", "com.electronic.manual",                        // store demo, manual
     };
 
+    /**
+     * This TV only (TCL Smart TV Pro, BeyondTV4, Android 11): everything that is off in its stable setup
+     * (tv-snapshots/services-2026-10-23-V14.md), turned off with the switch and again by the boot check. Some are on
+     * PROTECTED for other TCL models; this TV runs without them. Android's providers stay out (CORE refuses them).
+     */
+    static final String THIS_TV_DEVICE = "BeyondTV4";
+    static final String[] THIS_TV = {
+        // Android extras: camera, basic screensaver, system images, hotspot sign-in, HTML viewer, messages,
+        // proxy scripts, printing, sounds, wallpaper backup
+        "com.android.camera2", "com.android.dreams.basic", "com.android.dynsystem", "com.android.hotspot2.osulogin",
+        "com.android.htmlviewer", "com.android.messaging", "com.android.pacprocessor", "com.android.printspooler",
+        "com.android.soundpicker", "com.android.wallpaperbackup",
+        // Google: Backdrop screensaver, feedback, assistant, first-run helpers, calendar sync, Play Games, YouTube Music
+        "com.google.android.backdrop", "com.google.android.feedback", "com.google.android.katniss",
+        "com.google.android.onetimeinitializer", "com.google.android.partnersetup", "com.google.android.play.games",
+        "com.google.android.syncadapters.calendar", "com.google.android.tvrecommendations",
+        "com.google.android.youtube.tvmusic",
+        // TCL: phone link, webview, telemetry, browser, TCL Channel, dashboard, stickers, gallery, guard, first setup,
+        // key help, messages, mirroring, notes, app promos, partner setup, TCL home, user agreement, account, updater
+        "com.tcl.MultiScreenInteraction_TV", "com.tcl.android.webview", "com.tcl.bi", "com.tcl.browser",
+        "com.tcl.channelplus", "com.tcl.dashboard", "com.tcl.esticker", "com.tcl.gallery", "com.tcl.guard",
+        "com.tcl.initsetup", "com.tcl.keyhelp", "com.tcl.messagebox", "com.tcl.miracast", "com.tcl.notereminder",
+        "com.tcl.overseasappshow", "com.tcl.partnercustomizer", "com.tcl.tv.tclhome_passive", "com.tcl.useragreement",
+        "com.tcl.usercenter", "com.tcl.versionUpdateApp", "com.tcl.waterfall.overseas",
+        // Freeview Play (not used here): setup service, sign-in, programme data, catch-up in the TV guide
+        "uk.co.freeview.systemdistributor", "uk.co.freeview.fvpconfigauth", "uk.co.freeview.mdsclient",
+        "uk.co.freeview.tifbridge",
+    };
+
+    private static List<String> thisTv() {
+        return THIS_TV_DEVICE.equals(Build.DEVICE) ? Arrays.asList(THIS_TV) : Collections.<String>emptyList();
+    }
+
     /** The voice assistant, only with disable_assistant=true in config.properties (the mic button stops working). */
     static final String[] ASSISTANT = {"com.google.android.katniss", "com.android.hotwordenrollment.okgoogle"};
 
@@ -148,9 +181,13 @@ final class HomeMode {
     /** Factory and service menus, on any brand ("com.tcl.factory.view", "com.cvte.tv.fac.aging", "mediatek.factorymenu.ui"). */
     private static final Pattern FACTORY = Pattern.compile("(.*\\.)?(factory|factorymenu|facmenu|fac|hkcfac|testpq)(\\..*)?");
 
-    /** Checked before every disable: never the protected list, Android's own pieces or a factory menu. */
+    /**
+     * Checked before every disable: never the protected list (unless this TV's own list has it), Android's own pieces
+     * or a factory menu.
+     */
     private static boolean mayTurnOff(String pkg) {
-        return !PROTECTED.contains(pkg) && !CORE.matcher(pkg).matches() && !FACTORY.matcher(pkg).matches();
+        return (!PROTECTED.contains(pkg) || thisTv().contains(pkg)) && !CORE.matcher(pkg).matches()
+                && !FACTORY.matcher(pkg).matches();
     }
 
     /**
@@ -337,6 +374,8 @@ final class HomeMode {
             for (String pkg : packages(adb, "-d")) {
                 if (targets(home, dream, true).contains(pkg) && !disabled.contains(pkg) && !ours.contains(pkg)) keptOff.add(pkg);
             }
+            // This TV's list is ours even when it was off already: Original turns it back on.
+            keptOff.removeAll(thisTv());
             keptOff.removeAll(ours);
             JSONObject before = state(c);
             before.put("keptOff", new JSONArray(sorted(keptOff)));
@@ -406,7 +445,8 @@ final class HomeMode {
             String home = originalHome(s);
             Set<String> toEnable = new HashSet<>(stringList(s, "disabled"));
             for (String pkg : targets(home, originalDream(s), true)) {
-                if (!Arrays.asList(DEBLOAT).contains(pkg) && !Arrays.asList(ASSISTANT).contains(pkg)) toEnable.add(pkg);
+                if (!Arrays.asList(DEBLOAT).contains(pkg) && !Arrays.asList(ASSISTANT).contains(pkg)
+                        && !thisTv().contains(pkg)) toEnable.add(pkg);
             }
             toEnable.removeAll(stringList(s, "keptOff"));
             Set<String> present = packages(adb, "");
@@ -679,6 +719,7 @@ final class HomeMode {
         if (dreamPkg != null && !dreamPkg.equals(PKG) && !dreamPkg.equals(homePkg)) out.add(dreamPkg);
         out.addAll(Arrays.asList(DEBLOAT));
         if (Config.DISABLE_ASSISTANT) out.addAll(Arrays.asList(ASSISTANT));
+        for (String pkg : thisTv()) if (!out.contains(pkg)) out.add(pkg);
         return out;
     }
 
