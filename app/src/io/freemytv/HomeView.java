@@ -2907,12 +2907,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (tab == WATCH_TAB || pickRows.isEmpty()) return;
         RectF r0 = pickRows.get(0).rects.length > 0 ? pickRows.get(0).rects[0] : null;
         if (r0 == null) return;
-        int w = Math.round(r0.width() * (1 + PICK_GROW)), h = Math.round(r0.height() * (1 + PICK_GROW));
+        // (pw × ph, not w × h: those are the screen's, and `below` needs its height)
+        int pw = Math.round(r0.width() * (1 + PICK_GROW)), ph = Math.round(r0.height() * (1 + PICK_GROW));
         // Rows whose cards start above the screen's foot once the slide ends (the current one is at the top).
         int below = (int) Math.ceil((h / k - L_CARDS_TOP - ROW_CARDS) / ROW_PITCH) - 1;
         for (int r = 0; r < pickRows.size(); r++) {
             int around = r - rowIndex >= -1 && r - rowIndex <= below + 1 ? TitleRow.AROUND : -1;
-            pickRows.get(r).load(around, w, h, recs::cardImage);
+            pickRows.get(r).load(around, pw, ph, recs::cardImage);
         }
     }
 
