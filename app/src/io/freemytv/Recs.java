@@ -869,7 +869,7 @@ final class Recs {
     /** What the title popup shows besides the pick: fetched when it opens (nothing is kept on disk), a few in memory. */
     static final class Info {
         String line = "", cast = "", platforms = "";
-        final List<String[]> ratings = new ArrayList<>();   // {source, score}: IMDb, Rotten Tomatoes, Metacritic, else TMDB
+        final List<String[]> ratings = new ArrayList<>();   // {source, score}: IMDb, Rotten Tomatoes, Metacritic (OMDb), TMDB
     }
 
     private final Map<String, Info> infos = new LinkedHashMap<String, Info>(16, 0.75f, true) {
@@ -938,7 +938,7 @@ final class Recs {
         String imdb = o.optString("imdb_id", ids == null ? "" : ids.optString("imdb_id", ""));
         if (!imdb.startsWith("tt") && ids != null) imdb = ids.optString("imdb_id", "");
         omdb(imdb, info);
-        if (info.ratings.isEmpty() && o.optInt("vote_count") >= 20) {
+        if (o.optInt("vote_count") >= 20) {
             info.ratings.add(new String[] {"TMDB", String.format(Ui.locale(), "%.1f", o.optDouble("vote_average", 0))});
         }
     }
@@ -971,6 +971,7 @@ final class Recs {
             }
             String rating = o.optString("imdbRating", "");
             if (info.ratings.isEmpty() && !rating.isEmpty() && !rating.equals("N/A")) info.ratings.add(new String[] {"IMDb", rating});
+            AppLog.w("OMDb " + imdb + ": " + info.ratings.size() + " scores");
         } catch (Exception e) {
             AppLog.w("OMDb: " + e.getClass().getSimpleName());
         }
