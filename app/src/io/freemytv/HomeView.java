@@ -3336,10 +3336,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             watchRects[i].set(x, top, x + cw, top + art);
             before += f;
         }
+        TitleRow.keepInside(watchRects, cardFocus, MAX_CARDS, push, left, CONTENT_R * k);
         for (int r = 0; r < pickRows.size(); r++) {
             TitleRow row = pickRows.get(r);
             float aside = row == menuRow ? ROW_MENU_W * k * rowMenuOpen.value : 0;
-            row.layout(left + aside, rowTop(r) + ROW_CARDS * k, cw, art, g, cw * PICK_GROW / 2);
+            row.layout(left + aside, CONTENT_R * k + aside, rowTop(r) + ROW_CARDS * k, cw, art, g, cw * PICK_GROW / 2);
         }
     }
 

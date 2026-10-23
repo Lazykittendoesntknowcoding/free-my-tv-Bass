@@ -120,7 +120,7 @@ final class TitleRow {
      * The cards' places (cw × ch, gap apart), slid by the scroll; the cards beside a focused one move `push` aside
      * (as much as it grows on each side), so it grows without covering them.
      */
-    void layout(float left, float top, float cw, float ch, float gap, float push) {
+    void layout(float left, float right, float top, float cw, float ch, float gap, float push) {
         int n = Math.min(rects.length, items.size());
         float total = 0, before = 0;
         for (int i = 0; i < n; i++) total += focus[i].value;
@@ -130,6 +130,21 @@ final class TitleRow {
             rects[i].set(x, top, x + cw, top + ch);
             before += f;
         }
+        keepInside(rects, focus, n, push, left, right);
+    }
+
+    /**
+     * A selected card at either end grows past the row's edge: the whole row slides in by that much, so the grown
+     * card keeps the margin to the screen's edge (`push`: how far a fully selected card grows on each side).
+     */
+    static void keepInside(RectF[] rects, Spring[] focus, int n, float push, float left, float right) {
+        float shift = 0;
+        for (int i = 0; i < n; i++) {
+            float grow = push * focus[i].value;
+            if (grow <= 0) continue;
+            shift += Math.max(0, left - (rects[i].left - grow)) - Math.max(0, rects[i].right + grow - right);
+        }
+        if (shift != 0) for (int i = 0; i < n; i++) rects[i].offset(shift, 0);
     }
 
     Recs.Pick selected() {
