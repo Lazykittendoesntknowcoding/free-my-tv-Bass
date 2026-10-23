@@ -318,11 +318,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private long textNewsAt = -1, textMinute = -1;
     private int textPrefs = -1;
     private String textLanguage;
-    private String weatherTitle, nowTemp, highLow, sunriseText, sunsetText, newsSide;
+    private String weatherTitle, nowTemp, highLow, sunriseText, sunsetText, sunriseTime, sunsetTime, newsSide;
     private final String[] hourText = new String[6], hourTempText = new String[6];
     // The news card's 4 rows: the headlines (cut to the card's width once per fetch) and how old each one is.
     private static final int NEWS_ROWS = 4;
     private final String[] newsTitle = new String[NEWS_ROWS], newsAge = new String[NEWS_ROWS], newsFit = new String[NEWS_ROWS];
+    private final float[] newsSize = new float[NEWS_ROWS];
     private int newsRows;
     private float newsFitWidth = -1;
 
@@ -1456,18 +1457,20 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float left = MARGIN * k, right = CONTENT_R * k;
         float gap = 18 * k, groupGap = 56 * k;
         int groups = drawerInputs > 0 && drawerInputs < n ? 2 : 1;
-        float tw = Math.min(230 * k, (right - left - Math.max(0, n - groups) * gap - (groups - 1) * groupGap) / Math.max(1, n));
+        // The buttons share the whole row; only a very short list keeps them from getting too wide.
+        float tw = Math.min(400 * k, (right - left - Math.max(0, n - groups) * gap - (groups - 1) * groupGap) / Math.max(1, n));
         float x = left, top = ROW_TOP * k;
         for (int i = 0; i < n; i++) {
             if (i == drawerInputs && i > 0) x += groupGap - gap;
             drawerRects[i].set(x, top, x + tw, top + ROW_H * k);
             x += tw + gap;
         }
+        // News on the left with the wider part, so the headlines fit; weather on the right.
         float cardsTop = CARDS_TOP * k, split = left + (right - left) * 0.585f;
         boolean wx = Prefs.weather(), qt = Prefs.news();
         // A card that is off gives its room to the other one.
-        weatherCard.set(left, cardsTop, qt ? split - 16 * k : right, cardsTop + CARDS_H * k);
-        newsCard.set(wx ? split + 16 * k : left, cardsTop, right, cardsTop + CARDS_H * k);
+        newsCard.set(left, cardsTop, wx ? split - 16 * k : right, cardsTop + CARDS_H * k);
+        weatherCard.set(qt ? split + 16 * k : left, cardsTop, right, cardsTop + CARDS_H * k);
         drawerDirty = true;
     }
 
@@ -1528,8 +1531,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int i = 0; i < drawerItems.size(); i++) if (drawerFocus[i].value > 0.02f && (top < 0 || drawerFocus[i].value > drawerFocus[top].value)) top = i;
         for (int i = 0; i < drawerItems.size(); i++) if (i != top) drawDrawerTile(c, i);
         if (top >= 0) drawDrawerTile(c, top);
-        if (Prefs.weather()) drawWeatherCard(c, weatherCard);
         if (Prefs.news()) drawNewsCard(c, newsCard);
+        if (Prefs.weather()) drawWeatherCard(c, weatherCard);
     }
 
     /** Square drawer button: symbol and name; an input with no device is dimmed. Focused: white, with dark text. */
@@ -1566,7 +1569,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         drawerLabel.setTextSize(23 * k);
     }
 
-    /** Weather for your location: now (large), the next 6 hours, and sunrise and sunset. */
+    /** Weather for your location: now (large), the next hours (up to 6, as many as fit), and sunrise and sunset. */
     private void drawWeatherCard(Canvas c, RectF r) {
         drawerCard(c, r);
         if (Ui.LEGACY) weatherSnapshot.draw(c, r, drawerCardsKey(), cc -> drawWeather(cc, r));
@@ -1588,20 +1591,24 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         c.drawText(nowTemp, x + sw + 18 * k - Ui.leftBearing(bigTemp, nowTemp), r.top + 170 * k, bigTemp);
         c.drawText(HomeData.condition(wx.code, wx.isDay), x, r.top + 220 * k, cardText);
         c.drawText(highLow, x, r.top + 258 * k, cardDim);
-        float split = r.left + 392 * k;
+        float split = r.left + Math.min(392 * k, r.width() * 0.46f);
         fill.setShader(null);
         fill.setColor(tone(0x1A000000, 0x24FFFFFF));
         c.drawRoundRect(split - k, r.top + 34 * k, split + k, r.bottom - 34 * k, k, k, fill);
-        float hx = split + 30 * k, hw = (r.right - 30 * k - hx) / 6;
-        for (int i = 0; i < wx.hours.size() && i < 6; i++) {
+        float hx = split + 30 * k, room = r.right - 30 * k - hx;
+        int hours = Math.max(1, Math.min(6, (int) (room / (76 * k))));
+        float hw = room / hours;
+        for (int i = 0; i < wx.hours.size() && i < hours; i++) {
             float hc = hx + hw * (i + 0.5f);
             c.drawText(hourText[i], hc, r.top + 96 * k, hourPaint);
             Symbols.draw(getContext(), c, Symbols.weather(wx.hourCode.get(i), wx.hourDay.get(i)), hc, r.top + 142 * k, 30 * k, drawerInk(0.9f));
             c.drawText(hourTempText[i], hc, r.top + 196 * k, hourTemp);
         }
+        // In a narrow card the times go without their words: the symbols say which is which.
+        boolean words = sunWidth(sunriseText) + 36 * k + sunWidth(sunsetText) <= room;
         float sx = hx, base = r.top + 258 * k;
-        if (wx.sunrise != 0) sx = sunItem(c, "sunrise", sunriseText, sx, base) + 36 * k;
-        if (wx.sunset != 0) sunItem(c, "sunset", sunsetText, sx, base);
+        if (wx.sunrise != 0) sx = sunItem(c, "sunrise", words ? sunriseText : sunriseTime, sx, base) + 36 * k;
+        if (wx.sunset != 0) sunItem(c, "sunset", words ? sunsetText : sunsetTime, sx, base);
     }
 
     private void refreshDrawerText() {
@@ -1618,8 +1625,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 hourText[i] = HomeData.hour(wx.hours.get(i));
                 hourTempText[i] = HomeData.degrees(wx.hourTemp.get(i));
             }
-            sunriseText = Ui.trf("Sunrise {time}", "time", Ui.time(wx.sunrise));
-            sunsetText = Ui.trf("Sunset {time}", "time", Ui.time(wx.sunset));
+            sunriseTime = Ui.time(wx.sunrise);
+            sunsetTime = Ui.time(wx.sunset);
+            sunriseText = Ui.trf("Sunrise {time}", "time", sunriseTime);
+            sunsetText = Ui.trf("Sunset {time}", "time", sunsetTime);
         }
         long minute = System.currentTimeMillis() / 60_000;
         if (data.newsAt != textNewsAt || minute != textMinute || settings) {
@@ -1637,6 +1646,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
     }
 
+    private float sunWidth(String label) {
+        return Symbols.width(getContext(), "sunrise", 22 * k) + 10 * k + cardDim.measureText(label);
+    }
+
     private float sunItem(Canvas c, String symbol, String label, float x, float base) {
         float size = 22 * k, sw = Symbols.width(getContext(), symbol, size);
         Symbols.draw(getContext(), c, symbol, x + sw / 2, base - Ui.halfCap(cardDim), size, tone(L_DIM, 0xB3FFFFFF));
@@ -1644,7 +1657,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         return x + sw + 10 * k + cardDim.measureText(label);
     }
 
-    /** The BBC's top stories: the headline on one line (cut short with "…") and how long ago it was published. */
+    /** The BBC's top stories: the headline on one line (smaller, or cut short with "…", when long) and how long ago. */
     private void drawNewsCard(Canvas c, RectF r) {
         drawerCard(c, r);
         if (Ui.LEGACY) newsSnapshot.draw(c, r, drawerCardsKey(), cc -> drawNews(cc, r));
@@ -1700,13 +1713,22 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (width != newsFitWidth) {
             newsFitWidth = width;
             TextPaint fit = new TextPaint(cardText);
-            for (int i = 0; i < newsRows; i++) newsFit[i] = TextUtils.ellipsize(newsTitle[i], fit, width, TextUtils.TruncateAt.END).toString();
+            for (int i = 0; i < newsRows; i++) {
+                // A long headline gets a little smaller so it shows whole; only one longer still is cut with "…".
+                float size = 29 * k, wide = cardText.measureText(newsTitle[i]);
+                if (wide > width) size = Math.max(23 * k, size * width / wide);
+                newsSize[i] = size;
+                fit.setTextSize(size);
+                newsFit[i] = TextUtils.ellipsize(newsTitle[i], fit, width, TextUtils.TruncateAt.END).toString();
+            }
         }
         for (int i = 0; i < newsRows; i++) {
             float base = r.top + (110 + 52 * i) * k;
+            cardText.setTextSize(newsSize[i]);
             c.drawText(newsFit[i], x, base, cardText);
             c.drawText(newsAge[i], right, base, cardDimRight);
         }
+        cardText.setTextSize(29 * k);
     }
 
     // MARK: - Focus
@@ -2763,8 +2785,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int i = 0; i < Math.min(cardSlots(), cards.size()); i++) out.add(a11yId(Z_CARDS, i));
         for (int i = 0; i < shelf.size(); i++) out.add(a11yId(Z_SHELF, i));
         for (int i = 0; i < drawerItems.size(); i++) out.add(a11yId(Z_DRAWER, i));
-        if (drawerOpen && Prefs.weather()) out.add(a11yId(WIDGETS, 0));
         if (drawerOpen && Prefs.news()) out.add(a11yId(WIDGETS, 1));
+        if (drawerOpen && Prefs.weather()) out.add(a11yId(WIDGETS, 0));
     }
 
     private String a11yText(int id) {
@@ -2865,8 +2887,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private List<Integer> widgets() {
         List<Integer> out = new ArrayList<>();
         if (!drawerOpen) return out;
-        if (Prefs.weather()) out.add(0);
         if (Prefs.news()) out.add(1);
+        if (Prefs.weather()) out.add(0);
         return out;
     }
 
