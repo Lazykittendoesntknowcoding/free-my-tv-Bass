@@ -7,10 +7,13 @@ import android.net.Uri;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.net.URLEncoder;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.net.URLEncoder;
 import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -18,6 +21,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -139,6 +143,79 @@ final class WatchHistory {
     /** One card per show: the series' name when the app gives one, else the title. */
     static String key(String pkg, String show) {
         return pkg + "|" + show.trim().toLowerCase(Locale.ROOT);
+    }
+
+    static void setLink(Context c, String key, String linkFor, String link) {
+        update(c, list -> {
+            for (Entry e : list) {
+                if (!e.key.equals(key)) continue;
+                e.link = link;
+                e.linkFor = linkFor;
+            }
+        });
+    }
+
+    private static final Pattern IMDB = Pattern.compile("(tt\\d{6,10})(?::(\\d+):(\\d+))?");
+    private static final Pattern[] EPISODE = {
+            Pattern.compile("\\bS(\\d{1,2})\\s*[:.]?\\s*E(\\d{1,3})\\b", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("\\b(\\d{1,2})x(\\d{1,3})\\b"),
+            Pattern.compile("Season\\s*(\\d{1,2}).{0,12}?Episode\\s*(\\d{1,3})", Pattern.CASE_INSENSITIVE)};
+
+    /**
+     * Stremio doesn't say which title it plays, only its name: TMDB finds its IMDb id, and Stremio's own link opens
+     * that title's page (the episode's, for a series, when the name says which), one click from Play. The forms were
+     * tested on the TV. null: not found (no TMDB key, or no match). Network: never on the UI thread.
+     */
+    static String stremioLink(String name, String episode, String ids) throws Exception {
+        String imdb = null, type = null;
+        int season = -1, ep = -1;
+        Matcher m = IMDB.matcher(ids);
+        if (m.find()) {
+            imdb = m.group(1);
+            if (m.group(2) != null) {
+                season = Integer.parseInt(m.group(2));
+                ep = Integer.parseInt(m.group(3));
+                type = "series";
+            }
+        }
+        String query = name;
+        for (Pattern p : EPISODE) {
+            Matcher n = p.matcher(name + " " + episode);
+            if (!n.find()) continue;
+            if (season < 0) {
+                season = Integer.parseInt(n.group(1));
+                ep = Integer.parseInt(n.group(2));
+            }
+            int at = name.indexOf(n.group());
+            if (at > 0) query = name.substring(0, at).replaceAll("[\\s\\-:|·]+$", "");
+            break;
+        }
+        if (imdb == null || type == null) {
+            if (Config.TMDB_KEY.trim().isEmpty() || query.trim().isEmpty()) return null;
+            JSONArray results = Recs.get("/search/multi?query=" + URLEncoder.encode(query.trim(), "UTF-8")).optJSONArray("results");
+            JSONObject hit = null;
+            for (int i = 0; results != null && i < results.length() && hit == null; i++) {
+                JSONObject r = results.getJSONObject(i);
+                String mt = r.optString("media_type");
+                if (mt.equals("tv") || (mt.equals("movie") && season < 0)) hit = r;
+            }
+            if (hit == null) return null;
+            boolean tv = hit.optString("media_type").equals("tv");
+            type = tv ? "series" : "movie";
+            if (imdb == null) imdb = Recs.get("/" + (tv ? "tv" : "movie") + "/" + hit.getLong("id") + "/external_ids").optString("imdb_id");
+        }
+        if (imdb == null || !imdb.startsWith("tt")) return null;
+        if (type.equals("movie")) return "stremio:///detail/movie/" + imdb + "/" + imdb;
+        return "stremio:///detail/series/" + imdb + (season >= 0 ? "/" + imdb + ":" + season + ":" + ep : "");
+    }
+
+    /** Stremio's search for the title: when its page can't be found, the next best thing. */
+    static String stremioSearch(String name) {
+        try {
+            return "stremio:///search?search=" + URLEncoder.encode(name, "UTF-8").replace("+", "%20");
+        } catch (java.io.UnsupportedEncodingException e) {
+            return null;
+        }
     }
 
     private static final Pattern YOUTUBE_ID = Pattern.compile("[A-Za-z0-9_-]{11}");

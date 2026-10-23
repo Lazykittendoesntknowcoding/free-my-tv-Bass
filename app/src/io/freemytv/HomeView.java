@@ -3419,6 +3419,26 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void playWatched(final Recs.Pick p, RectF from) {
         click.open();
         final RectF r = new RectF(from);
+        if (WatchHistory.isStremio(p.pkg) && p.link == null) {
+            // Not found while it played (an older card, or TMDB was out of reach): find its page now.
+            final Context c = getContext().getApplicationContext();
+            new Thread(() -> {
+                String link = null;
+                try {
+                    link = WatchHistory.stremioLink(p.title, p.meta == null ? "" : p.meta, "");
+                    if (link != null) WatchHistory.setLink(c, p.watchKey, p.title + "|" + (p.meta == null ? "" : p.meta), link);
+                } catch (Exception e) {
+                    AppLog.w("continue watching: no Stremio link for " + p.title + ": " + e.getMessage());
+                }
+                p.link = link != null ? link : WatchHistory.stremioSearch(p.title);
+                handler.post(() -> playWatchedNow(p, r));
+            }, "stremio-link").start();
+            return;
+        }
+        playWatchedNow(p, r);
+    }
+
+    private void playWatchedNow(final Recs.Pick p, final RectF r) {
         android.content.Intent ask = new android.content.Intent(WatchListener.ACTION_PLAY)
                 .setPackage(getContext().getPackageName()).putExtra(WatchListener.EXTRA_KEY, p.watchKey);
         getContext().sendOrderedBroadcast(ask, null, new android.content.BroadcastReceiver() {
