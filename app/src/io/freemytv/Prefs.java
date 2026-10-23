@@ -168,7 +168,7 @@ final class Prefs {
         put("shelf", sb.toString());
     }
 
-    // MARK: - Picks rows (moved or hidden on the home screen, per tab: "all" for Explore, "movie", "tv")
+    // MARK: - Picks rows (moved, hidden or added on the home screen and in Home Settings › Content, per tab: "all" for Explore, "movie", "tv")
 
     /** The tab's rows in the order they were last moved to, by Recs.Row.id; empty until a row is moved. */
     static List<String> rowOrder(String tab) {
@@ -189,15 +189,21 @@ final class Prefs {
         put("rowsHidden." + tab, join(ids));
     }
 
-    /** How many rows are hidden on all three tabs. */
-    static int hiddenRowCount() {
-        return hiddenRows("all").size() + hiddenRows("movie").size() + hiddenRows("tv").size();
+    static void unhideRow(String tab, String id) {
+        Set<String> ids = hiddenRows(tab);
+        if (ids.remove(id)) put("rowsHidden." + tab, join(ids));
     }
 
-    /** Every hidden row shows again (each where it was moved to, if it was). */
-    static void showAllRows() {
-        sp().edit().remove("rowsHidden.all").remove("rowsHidden.movie").remove("rowsHidden.tv").apply();
-        version++;
+    /** Rows added in Home Settings › Content (the ones a tab doesn't show by itself), in the order they were added. */
+    static List<String> addedRows(String tab) {
+        return list(sp().getString("rowsAdded." + tab, ""));
+    }
+
+    static void setRowAdded(String tab, String id, boolean added) {
+        List<String> ids = addedRows(tab);
+        ids.remove(id);
+        if (added) ids.add(id);
+        put("rowsAdded." + tab, join(ids));
     }
 
     private static List<String> list(String v) {
