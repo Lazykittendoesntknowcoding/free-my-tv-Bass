@@ -32,20 +32,18 @@ import java.util.Set;
  * next() blocks (network and decoding): call it off the UI thread.
  */
 final class Photos {
-    /** A photo ready to draw: the image at the screen's size (in GPU memory), its frosted copy (1/6) and credit. */
+    /** A photo ready to draw: the image at the screen's size (in GPU memory) and its credit. */
     static final class Photo {
-        final Bitmap image, frost;
+        final Bitmap image;
         final String credit;
 
-        Photo(Bitmap image, Bitmap frost, String credit) {
+        Photo(Bitmap image, String credit) {
             this.image = image;
-            this.frost = frost;
             this.credit = credit;
         }
 
         void recycle() {
             image.recycle();
-            frost.recycle();
         }
     }
 
@@ -121,7 +119,8 @@ final class Photos {
                 return null;
             }
             Bitmap[] made = Backdrop.photo(f, w, h, null);
-            return new Photo(Backdrop.gpu(made[0]), made[1], credit);
+            made[1].recycle();   // the frosted copy: not used here
+            return new Photo(Backdrop.gpu(made[0]), credit);
         } catch (Exception e) {
             AppLog.w("screensaver photo: " + e.getMessage() + " " + url);
             return null;
