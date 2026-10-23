@@ -48,6 +48,9 @@ final class Recs {
         String title, backdrop, meta = "", app, pkg;
         String link;            // opens the title in its app (looked up with Watchmode), or null: the app's home
         boolean detailed;
+        // Continue watching (kind "watch"): the history's key and how far in (0 to 1).
+        String watchKey;
+        float progress;
     }
 
     interface Listener { void onRecs(); }

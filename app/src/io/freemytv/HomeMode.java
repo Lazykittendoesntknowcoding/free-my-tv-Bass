@@ -208,16 +208,29 @@ final class HomeMode {
      * boot check and an update turn it back on.
      */
     static void ensureRemoteService(Context c, long delayMs) {
-        if (RemoteKeys.supported()) ModeJob.schedule(c, ModeJob.REMOTE, null, delayMs);
+        ModeJob.schedule(c, ModeJob.REMOTE, null, delayMs);
     }
 
+    /** Also gives Continue watching its access again (an update of this app can take it away). */
     static void ensureRemoteServiceNow(Context app) {
-        if (!RemoteKeys.supported() || !FREE.equals(state(app).optString("mode"))) return;
+        if (!FREE.equals(state(app).optString("mode"))) return;
         try (Adb adb = Adb.connect(app, 10_000, null)) {
-            remoteService(app, adb, true);
+            if (RemoteKeys.supported()) remoteService(app, adb, true);
+            watchListener(adb, true);
         } catch (IOException e) {
             AppLog.w("remote buttons service: " + e.getMessage());
         }
+    }
+
+    private static final String WATCH_LISTENER = PKG + "/" + PKG + ".WatchListener";
+
+    /**
+     * Continue watching reads what other apps are playing (their media sessions), which Android allows only to a
+     * notification listener: WatchListener, on in Free My TV mode and off with Original. It reads no notifications.
+     */
+    private static void watchListener(Adb adb, boolean on) throws IOException {
+        String out = adb.shell("cmd notification " + (on ? "allow_listener " : "disallow_listener ") + WATCH_LISTENER).trim();
+        AppLog.w("continue watching access " + (on ? "on" : "off") + (out.isEmpty() ? "" : ": " + out));
     }
 
     private static final String REMOTE_SERVICE = PKG + "/" + PKG + ".RemoteKeyService";
@@ -370,6 +383,11 @@ final class HomeMode {
                     AppLog.w("remote buttons service: " + e.getMessage());
                 }
             }
+            try {
+                watchListener(adb, true);
+            } catch (IOException e) {
+                AppLog.w("continue watching access: " + e.getMessage());
+            }
             notice(c, Ui.trf("Free My TV is on: new home screen and screensaver, {n} apps turned off.", "n", disabled.size()));
             busy(c, Ui.tr("Measuring Free My TV…"));
             measureHomeTime(c, adb, FREE);
@@ -423,6 +441,11 @@ final class HomeMode {
                 remoteService(c, adb, false);
             } catch (IOException e) {
                 AppLog.w("remote buttons service: " + e.getMessage());
+            }
+            try {
+                watchListener(adb, false);
+            } catch (IOException e) {
+                AppLog.w("continue watching access: " + e.getMessage());
             }
             s = state(c);
             s.put("mode", ORIGINAL).put("since", System.currentTimeMillis()).put("homeReverted", false)
