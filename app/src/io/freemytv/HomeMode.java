@@ -445,10 +445,11 @@ final class HomeMode {
             String home = originalHome(s);
             Set<String> toEnable = new HashSet<>(stringList(s, "disabled"));
             for (String pkg : targets(home, originalDream(s), true)) {
-                if (!Arrays.asList(DEBLOAT).contains(pkg) && !Arrays.asList(ASSISTANT).contains(pkg)
-                        && !thisTv().contains(pkg)) toEnable.add(pkg);
+                if (!Arrays.asList(DEBLOAT).contains(pkg) && !Arrays.asList(ASSISTANT).contains(pkg)) toEnable.add(pkg);
             }
             toEnable.removeAll(stringList(s, "keptOff"));
+            // This TV's list always comes back, whoever turned it off and whatever the state file says.
+            toEnable.addAll(thisTv());
             Set<String> present = packages(adb, "");
             // The TV's home screen first and Google TV's setup app last, after the home screen is back: alone, its
             // recovery screen would take the Home button.
@@ -636,8 +637,9 @@ final class HomeMode {
                 for (String pkg : sorted(wanted)) if (!order.contains(pkg)) order.add(pkg);
                 Set<String> disabled = new HashSet<>(stringList(s, "disabled"));
                 // Off before Free My TV: turned off again if a TV update brings one back, but never handed to
-                // Original to turn on.
+                // Original to turn on. This TV's list is never kept off: it is ours.
                 List<String> keptOff = stringList(s, "keptOff");
+                keptOff.removeAll(thisTv());
                 Set<String> candidates = new HashSet<>();
                 for (String pkg : wanted) {
                     if (present.contains(pkg) && !keptOff.contains(pkg) && mayTurnOff(pkg)) candidates.add(pkg);
