@@ -678,7 +678,8 @@ final class Recs {
         }
     }
 
-    private JSONObject get(String path) throws IOException, org.json.JSONException {
+    /** A TMDB API call (also used by WatchListener to find a Stremio title's IMDb id). */
+    static JSONObject get(String path) throws IOException, org.json.JSONException {
         String key = readKey();
         if (key == null) throw new IOException("no TMDB key");
         boolean bearer = key.startsWith("eyJ");   // read access token (v4) or API key (v3)
@@ -698,7 +699,7 @@ final class Recs {
         }
     }
 
-    private String readKey() {
+    private static String readKey() {
         String key = Config.TMDB_KEY.trim();
         return key.isEmpty() ? null : key;
     }
