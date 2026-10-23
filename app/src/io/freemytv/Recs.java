@@ -148,6 +148,10 @@ final class Recs {
     private final Map<String, Integer> pages = new HashMap<>();          // row ("movie|top") → pages it has
     private final Set<String> exhausted = java.util.Collections.synchronizedSet(new HashSet<>());
     private final Set<String> growing = java.util.Collections.synchronizedSet(new HashSet<>());
+    // Per tab ("all", "movie", "tv"): each title's row (key → theme), so a title shows in one row of a tab only and
+    // stays in the row it first showed in as more pages come. A new list starts again.
+    private final Map<String, Map<String, String>> owners = new HashMap<>();
+    private long ownersAt;
     private volatile int period = -1;
     private volatile long listAt;
     private volatile boolean fetching;
@@ -275,10 +279,41 @@ final class Recs {
                     : theme.equals(KIDS) ? Ui.tr("genre|Kids")
                     : genreNames.get(kind + ":" + theme.substring(1));
             if (row.title == null) continue;
-            for (Pick p : picks) if (p.themes.contains(theme) && shown(p, kind, have)) row.picks.add(p);
+            synchronized (owners) {
+                Map<String, String> own = owners(kind);
+                for (Pick p : picks) {
+                    if (!p.themes.contains(theme) || !shown(p, kind, have)) continue;
+                    String o = own.get(key(p));
+                    if (o == null) own.put(key(p), o = theme);   // the first row to show it keeps it
+                    if (o.equals(theme)) row.picks.add(p);
+                }
+            }
+            // Short after skipping what other rows show (Popular is much like Trending): its next pages fill it.
+            if (row.picks.size() < SHORT_ROW && pagesOf(kind, theme) < 10) more(kind, theme);
             if (!row.picks.isEmpty()) out.add(row);
         }
         return out;
+    }
+
+    private static final int SHORT_ROW = 12;
+
+    /** The tab's titles and the row each shows in (hold `owners`). */
+    private Map<String, String> owners(String kind) {
+        if (ownersAt != listAt) {
+            owners.clear();
+            ownersAt = listAt;
+        }
+        String tab = kind == null ? "all" : kind;
+        Map<String, String> own = owners.get(tab);
+        if (own == null) owners.put(tab, own = new HashMap<>());
+        return own;
+    }
+
+    private int pagesOf(String kind, String theme) {
+        synchronized (pages) {
+            Integer n = pages.get(pageKey(kind, theme));
+            return n == null ? 1 : n;
+        }
     }
 
     // MARK: - Hidden and already watched
@@ -682,31 +717,43 @@ final class Recs {
     void more(String kind, String theme) {
         if (!hasKey(context) || filters.isEmpty() || theme == null) return;
         final String k = pageKey(kind, theme);
-        final int next;
         synchronized (pages) {
             if (exhausted.contains(k) || !growing.add(k)) return;
-            next = pages.containsKey(k) ? pages.get(k) + 1 : 2;
         }
         final long list = listAt;
         quick.execute(() -> {
             try {
-                List<List<Pick>> found = new ArrayList<>();
-                for (String kd : kind == null ? new String[] {"movie", "tv"} : new String[] {kind}) {
-                    if (exhausted.contains(pageKey(kd, theme)) && kind == null) continue;
-                    found.add(page(kd, theme, next));
-                }
-                synchronized (pages) {
-                    if (list != listAt) return;   // a new list came meanwhile: its own pages start again
-                    pages.put(k, next);
-                    if (kind == null && exhausted.contains(pageKey("movie", theme)) && exhausted.contains(pageKey("tv", theme))) exhausted.add(k);
-                    Map<String, Pick> all = new LinkedHashMap<>();
-                    for (Pick p : picks) all.put(key(p), p);
-                    if (found.size() == 2) {
-                        alternateCopy(all, found.get(0), found.get(1));
-                    } else {
-                        for (List<Pick> l : found) alternateCopy(all, l, new ArrayList<>());
+                // Titles another row of the tab already shows are skipped there, so a page may add few: up to 5 pages
+                // until the row has 8 new ones.
+                int added = 0;
+                for (int tries = 0; tries < 5 && added < 8 && !exhausted.contains(k); tries++) {
+                    int next;
+                    synchronized (pages) {
+                        next = pages.containsKey(k) ? pages.get(k) + 1 : 2;
                     }
-                    picks = new ArrayList<>(all.values());
+                    List<List<Pick>> found = new ArrayList<>();
+                    for (String kd : kind == null ? new String[] {"movie", "tv"} : new String[] {kind}) {
+                        if (exhausted.contains(pageKey(kd, theme)) && kind == null) continue;
+                        found.add(page(kd, theme, next));
+                    }
+                    synchronized (owners) {
+                        Map<String, String> own = owners(kind);
+                        for (List<Pick> l : found) for (Pick p : l) if (!own.containsKey(key(p))) added++;
+                    }
+                    synchronized (pages) {
+                        if (list != listAt) return;   // a new list came meanwhile: its own pages start again
+                        pages.put(k, next);
+                        if (kind == null && exhausted.contains(pageKey("movie", theme)) && exhausted.contains(pageKey("tv", theme))) exhausted.add(k);
+                        Map<String, Pick> all = new LinkedHashMap<>();
+                        for (Pick p : picks) all.put(key(p), p);
+                        if (found.size() == 2) {
+                            alternateCopy(all, found.get(0), found.get(1));
+                        } else {
+                            for (List<Pick> l : found) alternateCopy(all, l, new ArrayList<>());
+                        }
+                        picks = new ArrayList<>(all.values());
+                    }
+                    if (found.isEmpty()) break;
                 }
                 notifyListeners();
             } catch (Exception e) {
