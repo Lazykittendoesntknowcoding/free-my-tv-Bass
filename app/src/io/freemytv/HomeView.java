@@ -3223,7 +3223,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             c.restore();
         }
         if (f > 0.01f && img != null && p.overview != null && !p.overview.isEmpty()) {
-            drawOverview(c, rowAt * 2 + (i & 1), p.overview, cx, cy, s, bw, bh, r0, f);
+            drawOverview(c, rowAt * 2 + (i & 1), p.overview, cell, bw, bh, r, f);
         }
         float label = Ui.clamp(row.label[i].value);
         if (label < 0.01f) return;
@@ -3240,11 +3240,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     /**
-     * What the title is about, over the bottom of the focused card on a dark fade (laid out once per text and size, in
-     * slot i: row × 2 + the card's parity, so neighbouring cards, in a row or one above the other, don't take each
-     * other's place while the focus moves).
+     * What the title is about, over the bottom of the focused card (`card`, as drawn) on a dark fade. The text keeps
+     * its size while the card grows, so the grown card holds more lines; it is laid out once per text and size for the
+     * fully grown card (in slot i: row × 2 + the card's parity, so neighbouring cards, in a row or one above the
+     * other, don't take each other's place while the focus moves) and cut to the card while it grows.
      */
-    private void drawOverview(Canvas c, int i, String text, float cx, float cy, float s, float bw, float bh, float r0, float f) {
+    private void drawOverview(Canvas c, int i, String text, RectF card, float bw, float bh, float r, float f) {
         int slots = Math.max(1, pickRows.size()) * 2;
         if (overviewLayouts.length < slots) {
             overviewLayouts = new StaticLayout[slots];
@@ -3252,29 +3253,31 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             overviewScrims = new LinearGradient[slots];
             overviewW = new float[slots];
         }
-        float pad = 24 * k;
+        float pad = 20 * k, gw = bw * (1 + PICK_GROW), gh = bh * (1 + PICK_GROW);
         if (overviewLayouts[i] == null || !text.equals(overviewTexts[i]) || overviewW[i] != bw) {
-            int width = Math.max(1, Math.round(bw - 2 * pad));
+            int width = Math.max(1, Math.round(gw - 2 * pad));
+            int lines = Math.max(2, (int) ((gh * 0.75f - 2 * pad) / overviewPaint.getFontSpacing()));
             overviewLayouts[i] = StaticLayout.Builder.obtain(text, 0, text.length(), overviewPaint, width)
-                    .setMaxLines(bw > bh ? 3 : 6)
+                    .setMaxLines(lines)
                     .setEllipsize(TextUtils.TruncateAt.END)
                     .setIncludePad(false)
                     .build();
-            float top = bh / 2 - overviewLayouts[i].getHeight() - 2 * pad - 40 * k;
-            overviewScrims[i] = new LinearGradient(0, top, 0, bh / 2, 0x00000000, 0xD9000000, Shader.TileMode.CLAMP);
+            // From the card's foot (y = 0) up: dark under the text, clear above it.
+            float top = -overviewLayouts[i].getHeight() - 2 * pad - 40 * k;
+            overviewScrims[i] = new LinearGradient(0, top, 0, 0, 0x00000000, 0xD9000000, Shader.TileMode.CLAMP);
             overviewTexts[i] = text;
             overviewW[i] = bw;
         }
         StaticLayout layout = overviewLayouts[i];
         c.save();
-        c.translate(cx, cy);
-        c.scale(s, s);
-        tmp.set(-bw / 2, -bh / 2, bw / 2, bh / 2);
+        c.clipRect(card);
+        c.translate(card.left, card.bottom);
+        tmp.set(0, -card.height(), card.width(), 0);
         sheen.setShader(overviewScrims[i]);
         sheen.setAlpha(Math.round(255 * f));
-        c.drawRoundRect(tmp, r0, r0, sheen);
+        c.drawRoundRect(tmp, r, r, sheen);
         sheen.setAlpha(255);
-        c.translate(-bw / 2 + pad, bh / 2 - pad - layout.getHeight());
+        c.translate(pad, -pad - layout.getHeight());
         overviewPaint.setAlpha(Math.round(255 * f));
         layout.draw(c);
         c.restore();
