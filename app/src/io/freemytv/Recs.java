@@ -72,10 +72,12 @@ final class Recs {
     private static final int CACHE_VERSION = 6;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     /** The rows of a tab: trending this week, recent releases, the best rated. */
-    static final String HOT = "hot", POPULAR = "popular", NEW = "new", TOP = "top";
+    static final String HOT = "hot", POPULAR = "popular", NEW = "new", TOP = "top", KIDS = "kids";
     /** Genre rows (TMDB ids), in this order; their names come from TMDB in the TV's language. */
-    private static final int[] MOVIE_GENRES = {28, 35, 18, 53, 878, 27, 80, 10749, 10751, 99};
-    private static final int[] TV_GENRES = {10759, 35, 18, 80, 10765, 9648, 10751, 99, 10764};
+    private static final int[] MOVIE_GENRES = {28, 35, 18, 53, 878, 27, 80, 10749, 99};
+    private static final int[] TV_GENRES = {10759, 35, 18, 80, 10765, 9648, 99, 10764};
+    /** Kids: TMDB's Kids genre for shows; for movies (no such genre), Family without horror, thrillers or crime. */
+    private static final int TV_KIDS = 10762, FAMILY = 10751;
     private static final int PER_ROW = 20, PER_GENRE = 15;
     /**
      * Where a pick opens: Apple TV when the title is there and its own page is known (Watchmode), otherwise its page in
@@ -256,12 +258,16 @@ final class Recs {
         if (!hasKey(context)) return out;
         Map<String, Boolean> have = new HashMap<>();
         List<String> themes = new ArrayList<>(Arrays.asList(HOT, POPULAR, NEW, TOP));
-        if (kind != null) for (int g : kind.equals("movie") ? MOVIE_GENRES : TV_GENRES) themes.add("g" + g);
+        if (kind != null) {
+            themes.add(KIDS);   // the first genre
+            for (int g : kind.equals("movie") ? MOVIE_GENRES : TV_GENRES) themes.add("g" + g);
+        }
         for (String theme : themes) {
             Row row = new Row();
             row.theme = theme;
             row.title = theme.equals(HOT) ? Ui.tr("Trending now") : theme.equals(POPULAR) ? Ui.tr("Popular")
                     : theme.equals(NEW) ? Ui.tr("New releases") : theme.equals(TOP) ? Ui.tr("Top rated")
+                    : theme.equals(KIDS) ? Ui.tr("genre|Kids")
                     : genreNames.get(kind + ":" + theme.substring(1));
             if (row.title == null) continue;
             for (Pick p : picks) if (p.themes.contains(theme) && row.picks.size() < PER_ROW && shown(p, kind, have)) row.picks.add(p);
@@ -573,6 +579,15 @@ final class Recs {
             for (int i = 0; genres != null && i < genres.length(); i++) {
                 JSONObject g = genres.getJSONObject(i);
                 names.put(kind + ":" + g.optInt("id"), genre(g.optString("name")));
+            }
+            String kids = kind.equals("movie")
+                    ? "&with_genres=" + FAMILY + "&without_genres=27,53,80" + (Config.HIDE_ANIMATION ? "," + ANIMATION : "")
+                        + "&vote_count.gte=50" + common.replace("&without_genres=" + ANIMATION, "")
+                    : "&with_genres=" + TV_KIDS + "&vote_count.gte=10" + common;
+            try {
+                merge(all, discover(kind, kids, KIDS, PER_ROW));
+            } catch (Exception e) {
+                AppLog.w("recommendations: kids: " + e.getMessage());
             }
             for (int g : kind.equals("movie") ? MOVIE_GENRES : TV_GENRES) {
                 if (Config.HIDE_ANIMATION && g == ANIMATION) continue;
