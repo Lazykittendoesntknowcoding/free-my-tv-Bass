@@ -24,6 +24,41 @@ final class YouTubeFeed {
 
     private YouTubeFeed() {}
 
+    private static final String CHANNELS = "https://www.googleapis.com/youtube/v3/channels";
+    private static final java.util.Map<String, String> channels = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** A channel's ID already looked up for its handle ("@Name"), or null. */
+    static String cachedChannel(String handle) {
+        return channels.get(handle);
+    }
+
+    /** A channel's ID from its handle ("@Name"; costs 1 unit of the key's daily quota). null: none. Blocks. */
+    static String channelId(String handle) throws IOException {
+        String url;
+        try {
+            url = CHANNELS + "?part=id&forHandle=" + URLEncoder.encode(handle, "UTF-8")
+                    + "&key=" + URLEncoder.encode(Config.YOUTUBE_KEY.trim(), "UTF-8");
+        } catch (java.io.UnsupportedEncodingException e) {
+            throw new IOException(e.toString());
+        }
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        c.setConnectTimeout(5000);
+        c.setReadTimeout(5000);
+        try {
+            int code = c.getResponseCode();
+            if (code != 200) throw new IOException("YouTube returned HTTP " + code + " for " + handle);
+            JSONArray items = new JSONObject(read(c.getInputStream())).optJSONArray("items");
+            String id = items == null || items.length() == 0 ? "" : items.getJSONObject(0).optString("id");
+            if (id.isEmpty()) return null;
+            channels.put(handle, id);
+            return id;
+        } catch (org.json.JSONException e) {
+            throw new IOException("YouTube's answer: " + e.getMessage());
+        } finally {
+            c.disconnect();
+        }
+    }
+
     static boolean on() {
         return !Config.YOUTUBE_KEY.trim().isEmpty();
     }

@@ -128,7 +128,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         @Override public int focused() { return a11yFocused(); }
         @Override public void focus(int id) { a11yFocus(id); }
         @Override public void click(int id) { activate(); }
-        @Override public boolean clickable(int id) { return (id - 1) / 1000 != WIDGETS; }
+        @Override public boolean clickable(int id) { return true; }
         @Override public boolean holdable(int id) { return (id - 1) / 1000 == GRID && canToggleShelf((id - 1) % 1000); }
         @Override public void hold(int id) { a11yHold(); }
     });
@@ -234,6 +234,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private Hero hero, heroFrom;
     private long heroFadeAt, bgFadeAt;
     private final Spring heroFocus = new Spring(0.28f, 0.85f, 0);
+    private final Spring weatherFocus = new Spring(0.28f, 0.85f, 0), newsFocus = new Spring(0.28f, 0.85f, 0);
+    private final Paint cardRing = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF heroButton = new RectF();
     private Backdrop bgFrom, bgTo;     // null = gradient (no photo)
     private final int[] frostMix = new int[Backdrop.FW * Backdrop.FH];
@@ -331,7 +333,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private int textPrefs = -1;
     private String textLanguage;
     private String weatherTitle, nowTemp, highLow, sunriseText, sunsetText, sunriseTime, sunsetTime, newsSide;
-    private final String[] hourText = new String[6], hourTempText = new String[6];
+    private final String[] hourText = new String[WEATHER_HOURS], hourTempText = new String[WEATHER_HOURS];
+    /** The drawer's weather: the next 7 hours, so one sits right in the middle. */
+    private static final int WEATHER_HOURS = 7;
     // The news card's 4 rows: the headlines (cut to the card's width once per fetch) and how old each one is.
     /** The news card shows one headline at a time, the next every NEWS_TURN_MS, among the first NEWS_ROWS. */
     private static final int NEWS_ROWS = 5;
@@ -419,9 +423,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
     };
 
+    /** The news card lost the focus: its headlines turn again, the next one after a full turn. */
+    private void newsResume() {
+        handler.removeCallbacks(newsTurn);
+        if (drawerOpen) handler.postDelayed(newsTurn, NEWS_TURN_MS);
+    }
+
     private final Runnable newsTurn = new Runnable() {
         @Override public void run() {
-            if (!running || !drawerOpen) return;
+            if (!running || !drawerOpen || (zone == WIDGETS && widgetIndex == 1)) return;
             if (newsRows > 1 && Prefs.news()) {
                 newsIndex = (newsIndex + 1) % newsRows;
                 drawerDirty = true;
@@ -747,6 +757,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         border.setStrokeWidth(2 * k);
         rim.setStyle(Paint.Style.STROKE);
         rim.setStrokeWidth(2.5f * k);
+        cardRing.setStyle(Paint.Style.STROKE);
+        cardRing.setStrokeWidth(4 * k);
     }
 
     // MARK: - Frames: 60 per second while something moves; nothing is redrawn when still
@@ -770,7 +782,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         if (topMoving) status.invalidate();
         heroMoving |= topMoving | cardsMoving;
-        boolean drawerItemsMoving = step(drawerFocus, dt);
+        boolean drawerItemsMoving = step(drawerFocus, dt) | weatherFocus.step(dt) | newsFocus.step(dt);
         boolean gridMoving = step(gridFocus, dt) | scroll.step(dt);
         boolean drawerMoving = drawer.step(dt) | dockAway.step(dt);
         if (dockAway.velocity != 0 || dockAway.value != dockAway.target) heroDirty = true;   // the rows' room changes
@@ -1533,6 +1545,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         handler.removeCallbacks(newsTurn);
         zone = Z_SHELF;
         for (Spring f : drawerFocus) f.snap(0);   // the drawer goes away: its focus doesn't need to animate
+        weatherFocus.snap(0);
+        newsFocus.snap(0);
         if (!shelf.isEmpty() && drawerIndex < drawerRects.length) shelfIndex = nearest(tileRects, drawerRects[drawerIndex].centerX());
     }
 
@@ -1575,8 +1589,24 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int i = 0; i < drawerItems.size(); i++) if (drawerFocus[i].value > 0.02f && (top < 0 || drawerFocus[i].value > drawerFocus[top].value)) top = i;
         for (int i = 0; i < drawerItems.size(); i++) if (i != top) drawDrawerTile(c, i);
         if (top >= 0) drawDrawerTile(c, top);
-        if (Prefs.weather()) drawWeatherCard(c, weatherCard);
-        if (Prefs.news()) drawNewsCard(c, newsCard);
+        if (Prefs.weather()) {
+            drawWeatherCard(c, weatherCard);
+            cardRing(c, weatherCard, weatherFocus.value);
+        }
+        if (Prefs.news()) {
+            drawNewsCard(c, newsCard);
+            cardRing(c, newsCard, newsFocus.value);
+        }
+    }
+
+    /** A focused drawer card: a white ring around it. */
+    private void cardRing(Canvas c, RectF r, float focus) {
+        float f = Ui.clamp(focus);
+        if (f <= 0.01f) return;
+        cardRing.setColor(Ui.alpha(WHITE, f));
+        tmp.set(r);
+        tmp.inset(-5 * k, -5 * k);
+        c.drawRoundRect(tmp, 35 * k, 35 * k, cardRing);
     }
 
     /** Square drawer button: symbol and name; an input with no device is dimmed. Focused: white, with dark text. */
@@ -1613,7 +1643,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         drawerLabel.setTextSize(23 * k);
     }
 
-    /** Weather for your location: now (large), the next 6 hours, and sunrise and sunset. */
+    /** Weather for your location: now (large), the next 7 hours, and sunrise and sunset. OK opens a weather channel. */
     private void drawWeatherCard(Canvas c, RectF r) {
         drawerCard(c, r);
         if (Ui.LEGACY) weatherSnapshot.draw(c, r, drawerCardsKey(), cc -> drawWeather(cc, r));
@@ -1632,8 +1662,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         String symbol = Symbols.weather(wx.code, wx.isDay);
         float sw = Symbols.width(getContext(), symbol, 52 * k);
         Symbols.draw(getContext(), c, symbol, x + sw / 2, r.top + 132 * k, 52 * k, drawerInk(0.95f));
-        // The 6 hours keep ~64 px each; in a narrow card the "now" side gives up the room.
-        float split = r.left + Math.min(392 * k, r.width() - 60 * k - 6 * 64 * k);
+        // The hours keep ~64 px each; in a narrow card the "now" side gives up the room.
+        float split = r.left + Math.min(392 * k, r.width() - 60 * k - WEATHER_HOURS * 64 * k);
         float condW = split - 16 * k - x;
         // The big temperature gets smaller when it wouldn't fit beside its symbol ("-12°" in a narrow card).
         float tempRoom = condW - sw - 18 * k, tempW = bigTemp.measureText(nowTemp);
@@ -1650,11 +1680,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         fill.setShader(null);
         fill.setColor(tone(0x1A000000, 0x24FFFFFF));
         c.drawRoundRect(split - k, r.top + 34 * k, split + k, r.bottom - 34 * k, k, k, fill);
-        float hx = split + 30 * k, room = r.right - 30 * k - hx, hw = room / 6;
-        for (int i = 0; i < wx.hours.size() && i < 6; i++) {
+        float hx = split + 30 * k, room = r.right - 30 * k - hx, hw = room / WEATHER_HOURS;
+        int shown = Math.min(wx.hours.size(), WEATHER_HOURS);
+        for (int i = 0; i < shown; i++) {
             float hc = hx + hw * (i + 0.5f);
-            // Only the first and the last hour say their time: the ones between follow from them.
-            if (i == 0 || i == Math.min(wx.hours.size(), 6) - 1) c.drawText(hourText[i], hc, r.top + 96 * k, hourPaint);
+            // Only the first, middle and last hours say their time: the ones between follow from them.
+            if (i == 0 || i == shown / 2 || i == shown - 1) c.drawText(hourText[i], hc, r.top + 96 * k, hourPaint);
             Symbols.draw(getContext(), c, Symbols.weather(wx.hourCode.get(i), wx.hourDay.get(i)), hc, r.top + 142 * k, 30 * k, drawerInk(0.9f));
             c.drawText(hourTempText[i], hc, r.top + 196 * k, hourTemp);
         }
@@ -1676,7 +1707,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             weatherTitle = Prefs.city().isEmpty() ? Ui.tr("Weather") : Prefs.city();
             nowTemp = HomeData.degrees(wx.temp);
             highLow = HomeData.highLow(wx, "   ");
-            for (int i = 0; i < wx.hours.size() && i < 6; i++) {
+            for (int i = 0; i < wx.hours.size() && i < WEATHER_HOURS; i++) {
                 hourText[i] = HomeData.hour(wx.hours.get(i));
                 hourTempText[i] = HomeData.degrees(wx.hourTemp.get(i));
             }
@@ -1798,6 +1829,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean tilesChanged = aim(tileFocus, !sheetOpen && zone == Z_SHELF ? shelfIndex : -1, snap);
         boolean statusChanged = aim(statusFocus, !sheetOpen && zone == Z_STATUS ? statusIndex : -1, snap);
         boolean drawerChanged = aim(drawerFocus, !sheetOpen && zone == Z_DRAWER ? drawerIndex : -1, snap);
+        float wxTarget = !sheetOpen && zone == WIDGETS && widgetIndex == 0 ? 1 : 0;
+        float newsTarget = !sheetOpen && zone == WIDGETS && widgetIndex == 1 ? 1 : 0;
+        drawerChanged |= weatherFocus.target != wxTarget || newsFocus.target != newsTarget;
+        weatherFocus.target = wxTarget;
+        newsFocus.target = newsTarget;
+        if (snap) {
+            weatherFocus.snap(wxTarget);
+            newsFocus.snap(newsTarget);
+        }
         boolean heroChanged = heroFocus.target != (!sheetOpen && zone == Z_HERO ? 1 : 0);
         heroFocus.target = !sheetOpen && zone == Z_HERO ? 1 : 0;
         if (snap) heroFocus.snap(heroFocus.target);
@@ -2243,8 +2283,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 int at = on.indexOf(widgetIndex);
                 if (dy < 0 || at < 0) {
                     zone = Z_DRAWER;
+                    newsResume();
+                } else if (widgetIndex == 1 && dx != 0 && newsIndex + dx >= 0 && newsIndex + dx < newsRows) {
+                    // On the news card, ← and → go through the headlines (the turning waits while it has the focus).
+                    newsIndex += dx;
+                    drawerDirty = true;
                 } else if (dx != 0 && at + dx >= 0 && at + dx < on.size()) {
                     widgetIndex = on.get(at + dx);
+                    if (widgetIndex == 1) handler.removeCallbacks(newsTurn);
+                    else newsResume();
                 } else {
                     return;
                 }
@@ -2257,10 +2304,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     drawerIndex = next;
                 } else if (dy < 0) {
                     closeDrawer();
-                } else if (talkBack() && !widgets().isEmpty()) {
-                    // Only with TalkBack: the widgets are there to be read, and this is how it gets to them.
+                } else if (!widgets().isEmpty()) {
+                    // ↓ reaches the card below (OK opens its YouTube channel).
                     zone = WIDGETS;
-                    widgetIndex = widgets().get(0);
+                    List<Integer> on = widgets();
+                    float x = drawerRects[drawerIndex].centerX();
+                    widgetIndex = on.size() > 1 && Math.abs(newsCard.centerX() - x) < Math.abs(weatherCard.centerX() - x) ? 1 : on.get(0);
+                    if (widgetIndex == 1) handler.removeCallbacks(newsTurn);
                 } else {
                     return;
                 }
@@ -2315,7 +2365,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         HomeApps.Item it;
         RectF r;
-        if (!sheetOpen && zone == WIDGETS) return;   // a widget is only read
+        if (!sheetOpen && zone == WIDGETS) {
+            if (widgetIndex == 0) openChannel(WEATHER_CHANNEL, weatherCard);
+            else openChannel(NEWS_CHANNEL, newsCard);
+            return;
+        }
         if (sheetOpen) {
             if (others.isEmpty()) return;
             it = others.get(gridIndex);
@@ -3938,6 +3992,40 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 if (!opened) showToast(Ui.trf("Couldn't open {app}.", "app", p.app));
             }
         }, handler, 0, null, null);
+    }
+
+    /** The drawer cards' YouTube channels: OK on the weather card, OK on the news card. */
+    private static final String WEATHER_CHANNEL = "@UKWeatherToday", NEWS_CHANNEL = "@BBCNews";
+
+    /**
+     * A YouTube channel in the YouTube app. With a YouTube key the handle becomes the channel's ID (YouTube on TVs
+     * knows /channel/ links for sure), looked up once; without one, the handle's link.
+     */
+    private void openChannel(final String handle, RectF card) {
+        final RectF r = new RectF(card);
+        String id = YouTubeFeed.cachedChannel(handle);
+        if (id != null || !YouTubeFeed.on()) {
+            openChannel(handle, id, r);
+            return;
+        }
+        new Thread(() -> {
+            String found = null;
+            try {
+                found = YouTubeFeed.channelId(handle);
+            } catch (Exception e) {
+                AppLog.w("channel " + handle + ": " + e.getMessage());
+            }
+            final String channel = found;
+            handler.post(() -> openChannel(handle, channel, r));
+        }, "channel").start();
+    }
+
+    private void openChannel(String handle, String id, RectF r) {
+        String link = id != null ? "https://www.youtube.com/channel/" + id : "https://www.youtube.com/" + handle;
+        HomeApps.Item it = HomeApps.app(YouTubeFeed.PKG, "YouTube", link);
+        boolean opened = HomeApps.open(activity, it, this, Math.round(r.left), Math.round(r.top),
+                Math.round(r.width()), Math.round(r.height()));
+        if (!opened) showToast(Ui.trf("Couldn't open {app}.", "app", "YouTube"));
     }
 
     /** Holding OK on a Continue watching card takes it off the row. */
