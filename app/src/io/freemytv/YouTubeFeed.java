@@ -20,6 +20,7 @@ import java.util.List;
 final class YouTubeFeed {
     static final String KIND = "youtube", PKG = "com.google.android.youtube.tv";
     private static final String API = "https://www.googleapis.com/youtube/v3/videos";
+    private static final String SEARCH = "https://www.googleapis.com/youtube/v3/search";
 
     private YouTubeFeed() {}
 
@@ -74,6 +75,50 @@ final class YouTubeFeed {
         } finally {
             c.disconnect();
         }
+    }
+
+    /**
+     * The video's ID from its title and channel (YouTube on TVs keeps it out of what it reports as playing), for
+     * Continue watching. A search costs 100 of the key's 10,000 daily units, so it's done once per video. null: no
+     * match. Blocks: off the UI thread.
+     */
+    static String findVideo(String title, String channel) throws IOException {
+        String url;
+        try {
+            url = SEARCH + "?part=snippet&type=video&maxResults=5&q=" + URLEncoder.encode((title + " " + channel).trim(), "UTF-8")
+                    + "&key=" + URLEncoder.encode(Config.YOUTUBE_KEY.trim(), "UTF-8");
+        } catch (java.io.UnsupportedEncodingException e) {
+            throw new IOException(e.toString());
+        }
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        c.setConnectTimeout(8000);
+        c.setReadTimeout(10000);
+        try {
+            int code = c.getResponseCode();
+            if (code == 400 || code == 403) throw new IOException("YouTube refused the key or the day's quota is used (HTTP " + code + ")");
+            if (code != 200) throw new IOException("YouTube returned HTTP " + code);
+            JSONArray items = new JSONObject(read(c.getInputStream())).optJSONArray("items");
+            String first = null;
+            for (int i = 0; items != null && i < items.length(); i++) {
+                JSONObject v = items.getJSONObject(i), s = v.optJSONObject("snippet");
+                JSONObject idObj = v.optJSONObject("id");
+                String id = idObj == null ? "" : idObj.optString("videoId");
+                if (id.isEmpty() || s == null) continue;
+                if (first == null) first = id;
+                // The same title from the same channel: that's the one (titles come back with HTML entities).
+                String t = unescape(s.optString("title")), ch = s.optString("channelTitle");
+                if (t.equalsIgnoreCase(title) && (channel.isEmpty() || ch.equalsIgnoreCase(channel))) return id;
+            }
+            return first;
+        } catch (org.json.JSONException e) {
+            throw new IOException("YouTube's answer: " + e.getMessage());
+        } finally {
+            c.disconnect();
+        }
+    }
+
+    private static String unescape(String s) {
+        return s.replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">");
     }
 
     /** The largest 16:9 thumbnail (maxres 1280×720, else standard or high). */

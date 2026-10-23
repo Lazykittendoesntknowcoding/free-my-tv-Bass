@@ -3580,20 +3580,35 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void playWatched(final Recs.Pick p, RectF from) {
         click.open();
         final RectF r = new RectF(from);
-        if (WatchHistory.isStremio(p.pkg) && p.link == null) {
-            // Not found while it played (an older card, or TMDB was out of reach): find its page now.
+        final boolean stremio = WatchHistory.isStremio(p.pkg) && p.link == null;
+        final boolean youtube = WatchHistory.isYouTube(p.pkg) && YouTubeFeed.on()
+                && (p.link == null || !p.link.startsWith(WatchHistory.YOUTUBE_WATCH));
+        if (stremio || youtube) {
+            // Not found while it played (an older card, or the service was out of reach): find it now.
             final Context c = getContext().getApplicationContext();
+            final String meta = p.meta == null ? "" : p.meta, linkFor = p.title + "|" + meta;
             new Thread(() -> {
                 String link = null;
                 try {
-                    link = WatchHistory.stremioLink(p.title, p.meta == null ? "" : p.meta, "");
-                    if (link != null) WatchHistory.setLink(c, p.watchKey, p.title + "|" + (p.meta == null ? "" : p.meta), link);
+                    if (stremio) {
+                        link = WatchHistory.stremioLink(p.title, meta, "");
+                    } else {
+                        String id = YouTubeFeed.findVideo(p.title, meta);
+                        if (id != null) link = WatchHistory.YOUTUBE_WATCH + id;
+                    }
+                    if (link != null) WatchHistory.setLink(c, p.watchKey, linkFor, link);
                 } catch (Exception e) {
-                    AppLog.w("continue watching: no Stremio link for " + p.title + ": " + e.getMessage());
+                    AppLog.w("continue watching: nothing found for " + p.title + ": " + e.getMessage());
                 }
-                p.link = link != null ? link : WatchHistory.stremioSearch(p.title);
+                if (link != null) {
+                    WatchHistory.Entry e = WatchHistory.find(c, p.watchKey);
+                    android.content.Intent play = e == null ? null : WatchHistory.playIntent(e);
+                    p.link = play != null ? play.getDataString() : link;
+                } else if (stremio) {
+                    p.link = WatchHistory.stremioSearch(p.title);
+                }
                 handler.post(() -> playWatchedNow(p, r));
-            }, "stremio-link").start();
+            }, "watch-link").start();
             return;
         }
         playWatchedNow(p, r);

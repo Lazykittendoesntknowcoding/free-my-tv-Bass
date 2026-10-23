@@ -218,6 +218,18 @@ final class WatchHistory {
         }
     }
 
+    static final String YOUTUBE_WATCH = "https://www.youtube.com/watch?v=";
+
+    /** Whether this YouTube entry still needs its video's ID (only a search would open it). */
+    static boolean needsVideoId(Entry e) {
+        return isYouTube(e.pkg) && !YOUTUBE_ID.matcher(e.mediaId).matches() && !e.link.startsWith(YOUTUBE_WATCH);
+    }
+
+    static Entry find(Context c, String key) {
+        for (Entry e : load(c)) if (e.key.equals(key)) return e;
+        return null;
+    }
+
     private static final Pattern YOUTUBE_ID = Pattern.compile("[A-Za-z0-9_-]{11}");
     private static final Pattern NETFLIX_ID = Pattern.compile("\\d{5,10}");
 
@@ -231,15 +243,15 @@ final class WatchHistory {
 
     /**
      * The link that opens this title in its app, when we know one: the app's own media link, a YouTube video by its
-     * ID, a Netflix title by its ID, the Stremio page found on TMDB. YouTube on TVs often keeps the video ID to itself:
-     * then a search for the video's title and channel, where it's the first result. null: only the app can be opened.
+     * ID (its own, or the one YouTubeFeed found), a Netflix title by its ID, the Stremio page found on TMDB. Without a
+     * YouTube key, a YouTube video is a search for its title and channel, where it's the first result. null: only the app can be opened.
      */
     static Intent playIntent(Entry e) {
         String uri = null;
         if (e.mediaUri.startsWith("http://") || e.mediaUri.startsWith("https://")) {
             uri = e.mediaUri;
         } else if (isYouTube(e.pkg) && YOUTUBE_ID.matcher(e.mediaId).matches()) {
-            uri = "https://www.youtube.com/watch?v=" + e.mediaId;
+            uri = YOUTUBE_WATCH + e.mediaId;
         } else if (e.pkg.equals("com.netflix.ninja") && NETFLIX_ID.matcher(e.mediaId).matches()) {
             uri = "https://www.netflix.com/watch/" + e.mediaId;
         } else if (!e.link.isEmpty()) {
@@ -253,6 +265,8 @@ final class WatchHistory {
             }
         }
         if (uri == null) return null;
+        // A YouTube video starts where it was left (10 s back, to pick up the thread).
+        if (uri.startsWith(YOUTUBE_WATCH) && e.position > 30_000) uri += "&t=" + (e.position / 1000 - 10) + "s";
         Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(uri));
         i.setPackage(e.pkg);
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
