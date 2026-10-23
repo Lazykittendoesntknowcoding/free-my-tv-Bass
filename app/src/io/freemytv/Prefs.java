@@ -120,6 +120,35 @@ final class Prefs {
     static boolean news() { return sp().getBoolean("news", Config.SHOW_NEWS); }
     static void setNews(boolean on) { put("news", on); }
 
+    // MARK: - Screensaver
+
+    /** How often the photos change, in seconds. */
+    static final int[] PHOTO_TIMES = {30, 60, 120, 300, 600, 1800};
+
+    /** The screensaver's background: photos (the Chromecast featured photos) instead of the aurora. */
+    static boolean dreamPhotos() { return sp().getString("dreamBackground", "aurora").equals("photos"); }
+    static void setDreamPhotos(boolean on) { put("dreamBackground", on ? "photos" : "aurora"); }
+
+    static int photoSeconds() {
+        int v = sp().getInt("photoSeconds", 60);
+        for (int t : PHOTO_TIMES) if (t == v) return v;
+        return 60;
+    }
+
+    static void setPhotoSeconds(int seconds) {
+        sp().edit().putInt("photoSeconds", seconds).apply();
+        version++;
+    }
+
+    /**
+     * Reads the settings from disk again. On Android 11 the screensaver runs in the main process (ScreensaverAlone),
+     * whose copy would otherwise keep the values from when it started, not what was just changed in Settings (:home).
+     */
+    @SuppressWarnings("deprecation")
+    static void reload() {
+        if (app != null) app.getSharedPreferences("settings", Context.MODE_MULTI_PROCESS);
+    }
+
     // MARK: - Shelf
 
     /** Packages on the home shelf, in order; null until the user edits it (then the built-in list applies). */
