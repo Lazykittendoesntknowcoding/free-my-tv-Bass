@@ -88,7 +88,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final long TOAST_MS = 6000, FADE_MS = 800;
     /** Blur radii of the shadow and shadowDeep paints (Shadows needs them to draw the same blur on older TVs). */
     private static final float SHADOW_BLUR = 26, DEEP_BLUR = 30;
-    private static final int SKY = 0, HERO = 1, STATUS = 2, PLATTER = 3, TILES = 4, DRAWER = 5, SHEET = 6, TOAST = 7;
+    private static final int SKY = 0, HERO = 1, STATUS = 2, PLATTER = 3, TILES = 4, DRAWER = 5, SHEET = 6, TOAST = 7, PREVIEW = 8;
     private static final int Z_STATUS = 0, Z_HERO = 1, Z_SHELF = 2, Z_DRAWER = 3;
     private static final ExecutorService LOADER = Executors.newSingleThreadExecutor();
     // Light design (the L_ constants): title, tab bar, rows of cards and the shelf.
@@ -133,7 +133,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         @Override public void hold(int id) { a11yHold(); }
     });
     private final RectF a11yRect = new RectF();
-    private final Layer sky, heroLayer, status, platter, tiles, drawerLayer, sheetLayer, toastLayer;
+    private final Layer sky, heroLayer, status, platter, tiles, drawerLayer, sheetLayer, previewLayer, toastLayer;
     private int zone = Z_SHELF;
 
     // Night look (like Apple's "Automatic" appearance): darker from sunset to sunrise, with a 2 s transition.
@@ -309,6 +309,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private int menuIndex;
     private boolean menuOk;         // OK pressed while the menu is open (the press that opened it doesn't count)
     private final RectF menuRect = new RectF();
+    private final Preview preview;
+    private boolean previewOk, previewDirty, covered;
     private android.graphics.ColorFilter veilFilter;
     private float veilAmount = -1;
     private int veilColor;
@@ -361,6 +363,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 case TILES: drawTiles(c); break;
                 case DRAWER: drawDrawer(c); break;
                 case SHEET: drawSheet(c); break;
+                case PREVIEW: preview.draw(c); break;
                 default: drawToast(c); break;
             }
             scene.setOffset(0, 0);
@@ -417,13 +420,18 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         tiles = new Layer(a, TILES);
         drawerLayer = new Layer(a, DRAWER);
         sheetLayer = new Layer(a, SHEET);
+        previewLayer = new Layer(a, PREVIEW);
+        preview = new Preview(a, recs, ROW_LOADER, () -> {
+            previewDirty = true;
+            wake();
+        });
         toastLayer = new Layer(a, TOAST);
         // Hardware layers on the GPU: only the one that changed is redrawn; moving, fading and scaling stay cheap.
         // Not on Android 8 to 11: on older GPUs (a Mi Box 3's Mali-450) redrawing and compositing a big layer on every
         // frame cost more than drawing straight to the screen (measured: focus on the picks 33 → 12 ms a frame, the
         // drawer 19 → 17 ms).
-        for (View v : new View[] {heroLayer, status, platter, tiles, drawerLayer, sheetLayer}) v.setLayerType(Ui.LEGACY ? LAYER_TYPE_NONE : LAYER_TYPE_HARDWARE, null);
-        for (View v : new View[] {sky, heroLayer, status, platter, tiles, drawerLayer, sheetLayer, toastLayer}) {
+        for (View v : new View[] {heroLayer, status, platter, tiles, drawerLayer, sheetLayer, previewLayer}) v.setLayerType(Ui.LEGACY ? LAYER_TYPE_NONE : LAYER_TYPE_HARDWARE, null);
+        for (View v : new View[] {sky, heroLayer, status, platter, tiles, drawerLayer, sheetLayer, previewLayer, toastLayer}) {
             v.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);   // TalkBack reads the items (Spoken)
             addView(v);
         }
@@ -441,6 +449,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         recs.setLight(true);
         checkNight(false);
         sheetLayer.setVisibility(INVISIBLE);
+        previewLayer.setVisibility(INVISIBLE);
         scene.setMotion(0.6f, 0f);
         updatePalette();
         // First time: right away (a cold start opens with the apps already there); missing logos come from reload().
@@ -507,6 +516,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         wake();
         cancelReorder(!animated);
         closePickMenu();
+        preview.dismiss();
         zone = Z_SHELF;
         shelfIndex = 0;
         sheetOpen = false;
@@ -563,6 +573,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     @Override public void onRecs() {
         wake();
         updatePicks();
+        if (preview.open) preview.refresh();     // the pick's details: where Play opens it
     }
 
     private void invalidateAll() {
@@ -583,6 +594,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         measure(tiles, width, Math.round(270 * kk));
         measure(drawerLayer, width, Math.round(600 * kk));
         measure(sheetLayer, width, height);
+        measure(previewLayer, width, height);
         measure(toastLayer, Math.round(1000 * kk), Math.round(220 * kk));
         setMeasuredDimension(width, height);
     }
@@ -603,6 +615,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         sheetLayer.layout(0, 0, width, height);
         sheetLayer.setPivotX(width / 2f);
         sheetLayer.setPivotY(height / 2f);
+        previewLayer.layout(0, 0, width, height);
+        previewLayer.setPivotX(width / 2f);
+        previewLayer.setPivotY(height / 2f);
         place(toastLayer, (width - toastLayer.getMeasuredWidth()) / 2, 0);
     }
 
@@ -624,6 +639,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         layoutStatus();
         layoutDrawer();
         layoutLight();
+        preview.size(w, h, k);
         hero = null;
         heroFrom = null;
         updatePicks();
@@ -722,8 +738,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean heroFading = tickHeroFade(up);
         boolean bgFading = tickBackgroundFade(up);
         boolean nightMoving = tickNight(up);
+        boolean previewMoving = preview.step(dt);
+        if (preview.covers() != covered) {
+            covered = !covered;
+            motionDirty = true;
+        }
 
-        if (drawerMoving || sheetMoving || motionDirty) updateMotion();
+        if (drawerMoving || sheetMoving || previewMoving || motionDirty) updateMotion();
+        if (previewMoving || previewDirty) previewLayer.invalidate();
         // Opening and closing the drawer only moves the cached layers: redrawing the glass on every frame made the TV
         // drop frames (measured: ~50 ms of GPU per frame). The app tiles have no glass; the top buttons fade out as
         // they rise; the drawer is drawn resting in place; the glass shelf is redrawn once the drawer stops, so the
@@ -736,7 +758,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (drawerMoving || bgFading) sky.invalidate();
         if (bgFading || (drawerWasMoving && !drawerMoving)) platter.invalidate();
         drawerWasMoving = drawerMoving;
-        tilesDirty = statusDirty = heroDirty = drawerDirty = gridDirty = motionDirty = false;
+        tilesDirty = statusDirty = heroDirty = drawerDirty = gridDirty = motionDirty = previewDirty = false;
         if (updateClock()) {
             layoutStatus();
             status.invalidate();
@@ -750,7 +772,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         // Busy: something is moving, or the sheet or the drawer is open.
         boolean busy = tilesMoving || statusMoving || heroMoving || drawerItemsMoving || gridMoving || drawerMoving
                 || sheetMoving || toastFading || heroFading || bgFading || nightMoving || sheetOpen || sheet.value > 0.001f
-                || drawerOpen || drawer.value > 0.001f || toast != null || !toasts.isEmpty();
+                || drawerOpen || drawer.value > 0.001f || toast != null || !toasts.isEmpty() || previewMoving;
         idle = !busy;
         if (busy) Choreographer.getInstance().postFrameCallback(this);
         else Choreographer.getInstance().postFrameCallbackDelayed(this, 1000);
@@ -773,7 +795,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** Drawer and sheet: the layers' positions and opacity (without redrawing their content). */
     private void updateMotion() {
         float d = drawer.value, dc = Ui.clamp(d), s = Ui.clamp(sheet.value);
-        float home = 1 - s, top = home * (1 - smoothstep(0, 0.32f, dc));
+        // With the title popup's photo over the whole screen, nothing under it is drawn.
+        float home = covered ? 0 : 1 - s, top = home * (1 - smoothstep(0, 0.32f, dc));
         float shift = SHIFT * k;
         float lift = -d * shift;
         show(heroLayer, top, lift);
@@ -792,6 +815,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float scale = 1.04f - 0.04f * s;
         sheetLayer.setScaleX(scale);
         sheetLayer.setScaleY(scale);
+        sky.setVisibility(covered ? INVISIBLE : VISIBLE);
+        float pv = Ui.clamp(preview.shown.value);
+        previewLayer.setVisibility(pv > 0.002f ? VISIBLE : INVISIBLE);
+        previewLayer.setAlpha(pv);
+        previewLayer.setScaleX(1.03f - 0.03f * pv);
+        previewLayer.setScaleY(1.03f - 0.03f * pv);
     }
 
     private static void show(View v, float alpha, float translationY) {
@@ -1994,6 +2023,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
         if (reordering) return reorderKey(e, down);
         if (menuPick != null) return pickMenuKey(e, down);
+        if (preview.open) return previewKey(e, down);
         int code = e.getKeyCode();
         if (down && code != KeyEvent.KEYCODE_DPAD_CENTER && code != KeyEvent.KEYCODE_ENTER
                 && code != KeyEvent.KEYCODE_NUMPAD_ENTER) {
@@ -2195,6 +2225,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             dropReorder();
             return;
         }
+        if (preview.open) {
+            pressPreview();
+            return;
+        }
         HomeApps.Item it;
         RectF r;
         if (!sheetOpen && zone == WIDGETS) return;   // a widget is only read
@@ -2228,8 +2262,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             return;
         } else if (zone == Z_CARDS) {
             Recs.Pick p = cardIndex < cards.size() ? cards.get(cardIndex) : null;
-            if (p == null || p.pkg == null) return;
-            openPick(p, cardRects[cardIndex]);
+            if (p == null) return;
+            openPreview(p);
             return;
         } else {
             if (shelf.isEmpty()) return;
@@ -2275,6 +2309,72 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (zone == Z_HERO) return currentPick();
         if (zone == Z_CARDS && tab != WATCH_TAB && cardIndex < cards.size()) return cards.get(cardIndex);
         return null;
+    }
+
+    // MARK: - The title popup (OK on a card on Explore, Movies or Shows): Play, Watch trailer; Back closes it
+
+    private void openPreview(Recs.Pick p) {
+        click.open();
+        previewOk = false;
+        recs.detail(p);     // the IMDb id and where it streams, if the list didn't bring them
+        preview.open(p);
+        motionDirty = previewDirty = true;
+        wake();
+        spoken.focusMoved();
+    }
+
+    private void closePreview() {
+        if (!preview.open) return;
+        preview.close();
+        click.move();
+        motionDirty = previewDirty = true;
+        wake();
+        spoken.focusMoved();
+    }
+
+    /** Keys while the popup is open: ← → choose, OK picks, Back closes (system keys still go to the system). */
+    private boolean previewKey(KeyEvent e, boolean down) {
+        switch (e.getKeyCode()) {
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+                if (down && preview.move(e.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT ? -1 : 1)) {
+                    click.move();
+                    spoken.focusMoved();
+                }
+                return true;
+            case KeyEvent.KEYCODE_DPAD_UP:
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                return true;
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                if (down) {
+                    if (e.getRepeatCount() == 0) previewOk = true;
+                } else {
+                    if (previewOk && !e.isCanceled() && spoken.keyClick()) pressPreview();
+                    previewOk = false;
+                    okDown = okHeld = false;
+                }
+                return true;
+            case KeyEvent.KEYCODE_BACK:
+                if (!down && !e.isCanceled()) closePreview();
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /** Play opens the title as a click on its card did (Apple TV or Stremio); the popup stays for when you come back. */
+    private void pressPreview() {
+        Recs.Pick p = preview.pick;
+        if (p == null) return;
+        if (preview.button == Preview.TRAILER) {
+            playTrailer(p);
+        } else if (p.pkg == null) {
+            showToast(Ui.trf("Couldn't open {app}.", "app", p.title));
+        } else {
+            openPick(p, preview.buttons[Preview.PLAY]);
+        }
     }
 
     // MARK: - Holding OK on a pick: a small menu over its card (Watch trailer, Not interested)
@@ -2630,7 +2730,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // MARK: - TalkBack: every reachable item as a virtual node (Spoken). Id = group * 1000 + index + 1.
 
     /** The drawer's weather (0) and news (1) cards: read by TalkBack, never focused by the remote. */
-    private static final int GRID = 9, WIDGETS = 8;
+    private static final int GRID = 9, WIDGETS = 8, PREVIEW_GROUP = 10;
 
     private static int a11yId(int group, int index) {
         return group * 1000 + index + 1;
@@ -2641,6 +2741,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void a11yItems(List<Integer> out) {
+        if (preview.open) {
+            out.add(a11yId(PREVIEW_GROUP, Preview.PLAY));
+            out.add(a11yId(PREVIEW_GROUP, Preview.TRAILER));
+            return;
+        }
         if (sheetOpen) {
             for (int i = 0; i < others.size(); i++) out.add(a11yId(GRID, i));
             return;
@@ -2656,6 +2761,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private String a11yText(int id) {
         int group = (id - 1) / 1000, i = (id - 1) % 1000;
         switch (group) {
+            case PREVIEW_GROUP: return i == Preview.PLAY ? preview.spokenText() : preview.label(i);
             case GRID:
                 if (i >= others.size()) return "";
                 return label(others, i) + ", " + Ui.trf("{i} of {n}", "i", i + 1, "n", others.size());
@@ -2683,6 +2789,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         int group = (id - 1) / 1000, i = (id - 1) % 1000;
         float dy;
         switch (group) {
+            case PREVIEW_GROUP:
+                if (!preview.open || i > Preview.TRAILER) return false;
+                a11yRect.set(preview.buttons[i]);
+                dy = 0;
+                break;
             case GRID: {
                 if (!sheetOpen || i >= others.size()) return false;
                 float gridWidth = COLUMNS * GRID_W + (COLUMNS - 1) * GRID_GAP;
@@ -2729,6 +2840,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private int a11yFocused() {
+        if (preview.open) return a11yId(PREVIEW_GROUP, preview.button);
         if (sheetOpen) return others.isEmpty() ? -1 : a11yId(GRID, gridIndex);
         switch (zone) {
             case Z_TOP: return a11yId(Z_TOP, topIndex);
@@ -2760,6 +2872,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void a11yFocus(int id) {
         wake();
         int group = (id - 1) / 1000, i = (id - 1) % 1000;
+        if (group == PREVIEW_GROUP) {
+            if (preview.open && preview.move(i - preview.button)) click.move();
+            return;
+        }
+        if (preview.open) return;
         if (group == GRID) {
             if (!sheetOpen || i >= others.size()) return;
             gridIndex = i;
