@@ -691,7 +691,8 @@ final class Recs {
         if (stremio()) {
             String link;
             if (!p.imdb.isEmpty()) {
-                link = "stremio:///detail/" + (p.kind.equals("tv") ? "series" : "movie") + "/" + p.imdb;
+                link = p.kind.equals("tv") ? "stremio:///detail/series/" + p.imdb   // the forms tested on the TV
+                        : "stremio:///detail/movie/" + p.imdb + "/" + p.imdb;
             } else {
                 try {
                     link = "stremio:///search?search=" + URLEncoder.encode(p.title, "UTF-8").replace("+", "%20");
