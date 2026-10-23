@@ -105,8 +105,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final String[] TAB_KIND = {null, null, "movie", "tv"};
     /** Cards in a tab: 3 picks, or up to 50 titles to continue watching (about 5 on screen, scrolling sideways). */
     private static final int MAX_CARDS = WatchHistory.MAX, WATCH_VISIBLE = 5;
+    /** Continue watching: the selected card grows 50% (from its top edge), its neighbours sliding aside. */
+    private static final float WATCH_GROW = 0.5f;
     /** The picks tabs' rows: one under another (the current one at the top, the next peeking below), ROW_PITCH apart. */
-    private static final float ROW_PITCH = 420, ROW_HEADING = 28, ROW_CARDS = 56, PICK_GROW = 0.40f;
+    private static final float ROW_PITCH = 440, ROW_HEADING = 28, ROW_CARDS = 56, PICK_GROW = 0.50f;
     /** The picks tabs' background comes from the selected card once it has stayed selected this long. */
     private static final long BACKDROP_WAIT_MS = 5000;
     /** The rows' pictures load here (they may download first), apart from the shelf's. */
@@ -778,6 +780,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean heroMoving = heroFocus.step(dt);
         boolean topMoving = step(topFocus, dt), cardsMoving = step(cardFocus, dt);
         boolean rowsMoving = watchScroll.step(dt) | rowsScroll.step(dt) | rowMenuOpen.step(dt);
+        if (cardsMoving && tab == WATCH_TAB) rowsMoving = true;   // the neighbours slide aside with the focus
         for (TitleRow row : pickRows) rowsMoving |= row.step(dt);
         if (rowsMoving) {
             layoutCards();
@@ -3325,9 +3328,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void layoutCards() {
         float top = L_CARDS_TOP * k, g = L_CARD_GAP * k, left = MARGIN * k;
         float cw = ((CONTENT_R - MARGIN) * k - (WATCH_VISIBLE - 1) * g) / WATCH_VISIBLE, art = cw * 9 / 16;
+        float total = 0, before = 0, push = cw * WATCH_GROW / 2;
+        for (int i = 0; i < MAX_CARDS; i++) total += cardFocus[i].value;
         for (int i = 0; i < MAX_CARDS; i++) {
-            float x = left + (i - watchScroll.value) * (cw + g);
+            float f = cardFocus[i].value, after = total - before - f;
+            float x = left + (i - watchScroll.value) * (cw + g) + push * (before - after);
             watchRects[i].set(x, top, x + cw, top + art);
+            before += f;
         }
         for (int r = 0; r < pickRows.size(); r++) {
             TitleRow row = pickRows.get(r);
@@ -3662,7 +3669,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /**
      * Recommendation card in a row: the title's photo (TitleRow's, already at the focused card size, so it stays
-     * sharp), rounded corners and a soft shadow; when focused, it grows 10%, rises, lights up its border and shows what
+     * sharp), rounded corners and a soft shadow; when focused, it grows 50%, rises, lights up its border and shows what
      * the title is about. Below the current row's selected card only, the title and genre · runtime · service.
      */
     private void drawLightCard(Canvas c, TitleRow row, int rowAt, int i) {
@@ -3847,7 +3854,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void loadWatchArt() {
         final Context c = getContext().getApplicationContext();
         if (tab != WATCH_TAB || watchRects[0].width() < 16) return;   // not laid out yet
-        final int cw = Math.round(watchRects[0].width()), ch = Math.round(watchRects[0].height());
+        // Cut at the selected card's size, so it stays sharp.
+        final int cw = Math.round(watchRects[0].width() * (1 + WATCH_GROW)), ch = Math.round(watchRects[0].height() * (1 + WATCH_GROW));
         int first = Math.round(watchScroll.target), to = Math.min(cards.size(), first + WATCH_VISIBLE + 1);
         List<Recs.Pick> window = new ArrayList<>();
         for (int i = first; i < to; i++) window.add(cards.get(i));
@@ -3928,10 +3936,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void drawWatchCard(Canvas c, int i) {
         RectF base = cardRects[i];
         Recs.Pick p = cards.get(i);
-        float v = cardFocus[i].value, f = Ui.clamp(v), s = 1 + 0.07f * v;
+        float v = cardFocus[i].value, f = Ui.clamp(v), s = 1 + WATCH_GROW * v;
         float bw = base.width(), bh = base.height(), r0 = 16 * k;
-        float cx = base.centerX(), cy = base.centerY() - 6 * k * v;
-        cell.set(cx - bw * s / 2, cy - bh * s / 2, cx + bw * s / 2, cy + bh * s / 2);
+        // It grows from its top edge (clear of the tab bar) and rises a little.
+        float cx = base.centerX(), top = base.top - 6 * k * v;
+        cell.set(cx - bw * s / 2, top, cx + bw * s / 2, top + bh * s);
         float r = r0 * s;
         Bitmap img = watchArtFor(p.watchKey);
         boolean none = img == null || img.isRecycled();
@@ -3969,12 +3978,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             rim.setStrokeWidth(2.5f * k);
         }
         fitPaint.set(lCardTitle);
-        float textW = bw;
-        c.drawText(TextUtils.ellipsize(p.title, fitPaint, textW, TextUtils.TruncateAt.END).toString(), base.left, base.bottom + 46 * k, lCardTitle);
+        // Under the card as it is now: the text moves down and widens with it.
+        float textW = cell.width(), textX = cell.left, textY = cell.bottom;
+        c.drawText(TextUtils.ellipsize(p.title, fitPaint, textW, TextUtils.TruncateAt.END).toString(), textX, textY + 46 * k, lCardTitle);
         String meta = p.meta == null || p.meta.isEmpty() ? p.app : p.meta;
         if (meta != null && !meta.isEmpty()) {
             fitPaint.set(lCardMeta);
-            c.drawText(TextUtils.ellipsize(meta, fitPaint, textW, TextUtils.TruncateAt.END).toString(), base.left, base.bottom + 80 * k, lCardMeta);
+            c.drawText(TextUtils.ellipsize(meta, fitPaint, textW, TextUtils.TruncateAt.END).toString(), textX, textY + 80 * k, lCardMeta);
         }
     }
 
