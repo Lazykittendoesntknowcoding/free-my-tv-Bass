@@ -259,6 +259,18 @@ final class Recs {
         String theme, title;
         String kind;    // "movie" or "tv", or null for movies and shows together (what more() takes)
         final List<Pick> picks = new ArrayList<>();
+
+        /** What Prefs keeps a moved or hidden row by: its kind and theme ("movie:popular", "tv:g16"). */
+        String id() { return rowId(kind, theme); }
+    }
+
+    static String rowId(String kind, String theme) {
+        return kind + ":" + theme;
+    }
+
+    /** Hide on the home screen: the row leaves the tab ("all", "movie" or "tv"). */
+    static void hideRow(String tab, String id) {
+        Prefs.hideRow(tab, id);
     }
 
     /**
@@ -282,13 +294,35 @@ final class Recs {
         }
         // Titles go to the narrowest row first: Popular (and New, Top) would otherwise take most of Kids' and the
         // genres' titles, and their feeds are far longer to make up for it.
+        String tab = kind == null ? "all" : kind;
+        Set<String> hiddenRows = Prefs.hiddenRows(tab);
+        for (java.util.Iterator<Row> it = all.iterator(); it.hasNext(); ) if (hiddenRows.contains(it.next().id())) it.remove();
         List<Row> claim = new ArrayList<>(all);
         Collections.sort(claim, (a, b) -> claimOrder(a.theme) - claimOrder(b.theme));   // stable: movies before shows
         for (Row row : claim) fill(row, have);
         for (Row row : all) {
             if (!row.picks.isEmpty()) out.add(row);
-            if (kind == null && row.theme.equals(HOT) && "tv".equals(row.kind)) youTubeRow(out);
+            if (kind == null && row.theme.equals(HOT) && "tv".equals(row.kind) && !hiddenRows.contains(YOUTUBE_ROW)) {
+                youTubeRow(out);
+            }
         }
+        return ordered(out, Prefs.rowOrder(tab));
+    }
+
+    private static final String YOUTUBE_ROW = YouTubeFeed.KIND + ":" + HOT;
+
+    /**
+     * The rows moved on the TV take the places of the moved rows, in the order saved; the others keep their own
+     * places (a row that came later, such as a genre, shows where it would anyway).
+     */
+    private static List<Row> ordered(List<Row> rows, List<String> order) {
+        if (order.isEmpty()) return rows;
+        List<Row> moved = new ArrayList<>();
+        for (Row row : rows) if (order.contains(row.id())) moved.add(row);
+        Collections.sort(moved, (a, b) -> order.indexOf(a.id()) - order.indexOf(b.id()));
+        List<Row> out = new ArrayList<>(rows.size());
+        int next = 0;
+        for (Row row : rows) out.add(order.contains(row.id()) ? moved.get(next++) : row);
         return out;
     }
 

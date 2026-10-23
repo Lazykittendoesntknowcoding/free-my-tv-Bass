@@ -11,8 +11,10 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * Settings changed on the TV itself (Free My TV > Settings). config.properties only gives the first
@@ -164,6 +166,50 @@ final class Prefs {
         StringBuilder sb = new StringBuilder();
         for (String p : packages) sb.append(sb.length() == 0 ? "" : ",").append(p);
         put("shelf", sb.toString());
+    }
+
+    // MARK: - Picks rows (moved or hidden on the home screen, per tab: "all" for Explore, "movie", "tv")
+
+    /** The tab's rows in the order they were last moved to, by Recs.Row.id; empty until a row is moved. */
+    static List<String> rowOrder(String tab) {
+        return list(sp().getString("rowOrder." + tab, ""));
+    }
+
+    static void setRowOrder(String tab, List<String> ids) {
+        put("rowOrder." + tab, join(ids));
+    }
+
+    static Set<String> hiddenRows(String tab) {
+        return new HashSet<>(list(sp().getString("rowsHidden." + tab, "")));
+    }
+
+    static void hideRow(String tab, String id) {
+        Set<String> ids = hiddenRows(tab);
+        ids.add(id);
+        put("rowsHidden." + tab, join(ids));
+    }
+
+    /** How many rows are hidden on all three tabs. */
+    static int hiddenRowCount() {
+        return hiddenRows("all").size() + hiddenRows("movie").size() + hiddenRows("tv").size();
+    }
+
+    /** Every hidden row shows again (each where it was moved to, if it was). */
+    static void showAllRows() {
+        sp().edit().remove("rowsHidden.all").remove("rowsHidden.movie").remove("rowsHidden.tv").apply();
+        version++;
+    }
+
+    private static List<String> list(String v) {
+        List<String> out = new ArrayList<>();
+        for (String p : v.split(",")) if (!p.isEmpty()) out.add(p);
+        return out;
+    }
+
+    private static String join(Iterable<String> items) {
+        StringBuilder sb = new StringBuilder();
+        for (String p : items) sb.append(sb.length() == 0 ? "" : ",").append(p);
+        return sb.toString();
     }
 
     // MARK: - Top buttons

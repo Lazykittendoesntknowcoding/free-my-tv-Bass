@@ -652,6 +652,7 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("News widget"));
             l.add(Ui.tr("Screensaver background"));
             if (Prefs.dreamPhotos()) l.add(Ui.tr("Photo change"));
+            l.add(Ui.tr("Hidden rows"));
             return l.toArray(new String[0]);
         }
 
@@ -669,8 +670,15 @@ public class SettingsActivity extends Activity {
             v[CITY_ROW] = !cityStatus.isEmpty() ? cityStatus : Prefs.city().isEmpty() ? "—" : Prefs.city();
             v[6] = onOff(Prefs.news());
             v[BACKGROUND_ROW] = Prefs.dreamPhotos() ? Ui.tr("Photos") : Ui.tr("Aurora");
-            if (v.length > PHOTO_TIME_ROW) v[PHOTO_TIME_ROW] = photoTime(Prefs.photoSeconds());
+            if (Prefs.dreamPhotos()) v[PHOTO_TIME_ROW] = photoTime(Prefs.photoSeconds());
+            int hidden = Prefs.hiddenRowCount();
+            v[hiddenRowsRow()] = hidden == 0 ? Ui.tr("None") : Ui.plural("plural|one:{n} hidden · OK shows it|other:{n} hidden · OK shows them", hidden);
             return v;
+        }
+
+        /** Rows hidden on the picks tabs (← on a row's first title, then Hide): OK shows them all again. */
+        private int hiddenRowsRow() {
+            return Prefs.dreamPhotos() ? PHOTO_TIME_ROW + 1 : PHOTO_TIME_ROW;
         }
 
         private static String photoTime(int seconds) {
@@ -737,6 +745,7 @@ public class SettingsActivity extends Activity {
                 Prefs.setKeyApp(Prefs.KEYS[focus], appPkgs.get(next));
                 return;
             }
+            if (focus == hiddenRowsRow()) return;   // OK only
             switch (focus) {
                 case 0: break;   // OK opens the language picker.
                 case 1: {
@@ -1024,6 +1033,10 @@ public class SettingsActivity extends Activity {
                 openPicker(PICK_LANGUAGE);
             } else if (screen == HOME_SETTINGS && focus == CITY_ROW) {
                 askCity();
+                return;
+            } else if (screen == HOME_SETTINGS && focus == hiddenRowsRow()) {
+                Prefs.showAllRows();
+                invalidate();
                 return;
             } else if (screen == HOME_SETTINGS) {
                 adjust(1);

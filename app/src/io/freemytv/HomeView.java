@@ -38,6 +38,7 @@ import org.json.JSONObject;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -161,6 +162,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final List<TitleRow> pickRows = new ArrayList<>();
     private int rowIndex;
     private final Spring rowsScroll = new Spring(0.4f, 0.9f, 0);
+    // ← on a row's first title: Move and Hide beside the row (it slides aside for them). Move lifts the row: ↑ ↓ carry
+    // it, pinned at the top while the others slide past, OK drops it, Back puts it back. Saved in Prefs per tab.
+    private static final float ROW_MENU_W = 250, ROW_MENU_BH = 64, ROW_MENU_GAP = 16;
+    private boolean rowMenu, rowMoving, rowMenuOk;
+    private int rowMenuIndex;
+    private TitleRow menuRow;
+    private List<TitleRow> rowsBefore;
+    private final Spring rowMenuOpen = new Spring(0.4f, 0.9f, 0);
     // On the picks tabs the dock slides down off the screen (1) and the rows take its place; Continue watching brings
     // it back (0).
     private final Spring dockAway = new Spring(0.5f, 1f, 0);
@@ -497,6 +506,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         running = false;
         cancelReorder(true);
         closePickMenu();
+        endRowEdit();
         handler.removeCallbacks(holdStart);
         okHeld = holdArmed = false;
         Choreographer.getInstance().removeFrameCallback(this);
@@ -517,6 +527,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     void reset(boolean animated) {
         wake();
         cancelReorder(!animated);
+        endRowEdit();
         closePickMenu();
         preview.dismiss();
         zone = Z_SHELF;
@@ -723,7 +734,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean statusMoving = step(statusFocus, dt);
         boolean heroMoving = heroFocus.step(dt);
         boolean topMoving = step(topFocus, dt), cardsMoving = step(cardFocus, dt);
-        boolean rowsMoving = watchScroll.step(dt) | rowsScroll.step(dt);
+        boolean rowsMoving = watchScroll.step(dt) | rowsScroll.step(dt) | rowMenuOpen.step(dt);
         for (TitleRow row : pickRows) rowsMoving |= row.step(dt);
         if (rowsMoving) {
             layoutCards();
@@ -1776,7 +1787,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             // Near a row's end its next page comes from the feed (Recs appends it and notifies): the row goes on.
             if (cardIndex >= current.items.size() - 7) recs.more(current.kind, current.theme);
             for (int r = 0; r < pickRows.size(); r++) {
-                heroChanged |= pickRows.get(r).aim(!sheetOpen && zone == Z_CARDS && r == rowIndex, r == rowIndex, snap);
+                heroChanged |= pickRows.get(r).aim(!sheetOpen && zone == Z_CARDS && !rowMenu && r == rowIndex, r == rowIndex, snap);
             }
             heroChanged |= rowsScroll.target != rowIndex;
             rowsScroll.target = rowIndex;
@@ -2055,6 +2066,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         wake();
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
         if (reordering) return reorderKey(e, down);
+        if (rowMenu) return rowMenuKey(e, down);
+        if (rowMoving) return rowMoveKey(e, down);
         if (menuPick != null) return pickMenuKey(e, down);
         if (preview.open) return previewKey(e, down);
         int code = e.getKeyCode();
@@ -2533,6 +2546,180 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
     }
 
+    // MARK: - Moving and hiding a picks row
+
+    /** The tab's name in Prefs' row lists. */
+    private String rowsTab() {
+        return TAB_KIND[tab] == null ? "all" : TAB_KIND[tab];
+    }
+
+    private void openRowMenu() {
+        if (pickRows.isEmpty()) return;
+        rowMenu = true;
+        rowMenuIndex = 0;
+        rowMenuOk = false;
+        menuRow = pickRows.get(rowIndex);
+        rowMenuOpen.target = 1;
+        click.open();
+        retarget(false);
+        heroDirty = true;
+        spoken.focusMoved();
+    }
+
+    private void closeRowMenu() {
+        rowMenu = false;
+        rowMenuOpen.target = 0;
+        click.move();
+        retarget(false);
+        heroDirty = true;
+        spoken.focusMoved();
+    }
+
+    /** Keys while Move and Hide show: ↑ ↓ choose, OK picks, → or Back go back to the row. */
+    private boolean rowMenuKey(KeyEvent e, boolean down) {
+        switch (e.getKeyCode()) {
+            case KeyEvent.KEYCODE_DPAD_UP:
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                if (down) {
+                    int next = e.getKeyCode() == KeyEvent.KEYCODE_DPAD_UP ? 0 : 1;
+                    if (next != rowMenuIndex) {
+                        rowMenuIndex = next;
+                        click.move();
+                        heroDirty = true;
+                        spoken.focusMoved();
+                    }
+                }
+                return true;
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+                if (down) closeRowMenu();
+                return true;
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+                return true;
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                if (down) {
+                    if (e.getRepeatCount() == 0) rowMenuOk = true;
+                } else {
+                    if (rowMenuOk && !e.isCanceled()) {
+                        if (rowMenuIndex == 0) startRowMove();
+                        else hideRow();
+                    }
+                    rowMenuOk = false;
+                    okDown = okHeld = false;
+                }
+                return true;
+            case KeyEvent.KEYCODE_BACK:
+                if (!down && !e.isCanceled()) closeRowMenu();
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private void startRowMove() {
+        rowMenu = false;
+        rowMoving = true;
+        rowsBefore = new ArrayList<>(pickRows);
+        rowMenuOpen.target = 0;
+        click.open();
+        showToast(Ui.tr("↑ ↓ to move · OK to drop · Back to cancel"));
+        retarget(false);
+        heroDirty = true;
+    }
+
+    /** Keys while a row is lifted: nothing else on the home screen gets them (system keys still go to the system). */
+    private boolean rowMoveKey(KeyEvent e, boolean down) {
+        switch (e.getKeyCode()) {
+            case KeyEvent.KEYCODE_DPAD_UP:
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                if (down) shiftRow(e.getKeyCode() == KeyEvent.KEYCODE_DPAD_UP ? -1 : 1);
+                return true;
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+                return true;
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                if (down && e.getRepeatCount() == 0) dropRow();
+                if (!down) okDown = okHeld = false;
+                return true;
+            case KeyEvent.KEYCODE_BACK:
+                if (!down && !e.isCanceled()) cancelRowMove();
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /** Swaps the lifted row with the one above or below; it stays at the top while the rows slide past it. */
+    private void shiftRow(int dy) {
+        int j = rowIndex + dy;
+        if (j < 0 || j >= pickRows.size()) return;
+        Collections.swap(pickRows, rowIndex, j);
+        useRow(j);
+        click.move();
+        retarget(false);
+        heroDirty = true;
+        spoken.focusMoved();
+    }
+
+    /** Drops the lifted row where it is and keeps the tab's new order. */
+    private void dropRow() {
+        rowMoving = false;
+        rowsBefore = null;
+        List<String> ids = new ArrayList<>();
+        for (TitleRow row : pickRows) ids.add(Recs.rowId(row.kind, row.theme));
+        Prefs.setRowOrder(rowsTab(), ids);
+        click.open();
+        afterRowChange();
+    }
+
+    /** Back while a row is lifted: every row goes back where it was. */
+    private void cancelRowMove() {
+        if (!rowMoving) return;
+        rowMoving = false;
+        if (rowsBefore != null && rowsBefore.size() == pickRows.size()) {
+            pickRows.clear();
+            pickRows.addAll(rowsBefore);
+            useRow(Math.max(0, pickRows.indexOf(menuRow)));
+        }
+        rowsBefore = null;
+        click.move();
+        afterRowChange();
+    }
+
+    /** Hides the current row on this tab; the next one takes its place (Home Settings › Hidden rows shows it again). */
+    private void hideRow() {
+        TitleRow row = pickRows.get(rowIndex);
+        rowMenu = false;
+        rowMenuOpen.target = 0;
+        Recs.hideRow(rowsTab(), Recs.rowId(row.kind, row.theme));
+        click.open();
+        showToast(Ui.trf("“{row}” is hidden. Home Settings › Hidden rows shows it again.", "row", row.title));
+        afterRowChange();
+    }
+
+    private void afterRowChange() {
+        updateCards();
+        if (zone == Z_CARDS && cards.isEmpty()) {
+            zone = Z_TOP;
+            topIndex = tab;
+        }
+        retarget(false);
+        heroDirty = true;
+        spoken.focusMoved();
+    }
+
+    /** Leaving the home screen or the tab: a menu closes, a lifted row goes back. */
+    private void endRowEdit() {
+        if (rowMoving) cancelRowMove();
+        if (rowMenu) {
+            rowMenu = false;
+            rowMenuOpen.target = 0;
+        }
+    }
+
     // MARK: - Holding OK: All Apps puts the app on the shelf or takes it off; on the shelf, the app is lifted to move
 
     private void hold() {
@@ -2810,7 +2997,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             case Z_TOP:
                 if (i >= TABS) return label(lightButtons, i - TABS);
                 return Ui.trf("{name}, tab {i} of {n}", "name", tabs()[i], "i", i + 1, "n", TABS);
-            case Z_CARDS: return i < cards.size() ? pickText(cards.get(i)) : "";
+            case Z_CARDS:
+                if (rowMenu) return rowMenuLabels()[rowMenuIndex] + ", " + Ui.trf("{i} of {n}", "i", rowMenuIndex + 1, "n", 2);
+                if (rowMoving && i == cardIndex) return Ui.trf("Moving {row}, row {n} of {total}", "row",
+                        pickRows.get(rowIndex).title, "n", rowIndex + 1, "total", pickRows.size());
+                return i < cards.size() ? pickText(cards.get(i)) : "";
             case Z_SHELF:
                 if (reordering && i == shelfIndex) {
                     return Ui.trf("Moving {app}, position {n} of {total}",
@@ -3043,12 +3234,18 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             watchRects[i].set(x, top, x + cw, top + art);
         }
         for (int r = 0; r < pickRows.size(); r++) {
-            pickRows.get(r).layout(left, rowTop(r) + ROW_CARDS * k, cw, art, g, cw * PICK_GROW / 2);
+            TitleRow row = pickRows.get(r);
+            float aside = row == menuRow ? ROW_MENU_W * k * rowMenuOpen.value : 0;
+            row.layout(left + aside, rowTop(r) + ROW_CARDS * k, cw, art, g, cw * PICK_GROW / 2);
         }
     }
 
-    /** Where row r begins (its heading above its cards), with the rows slid so the current one is at the top. */
+    /**
+     * Where row r begins (its heading above its cards), with the rows slid so the current one is at the top; a row
+     * being moved stays there.
+     */
     private float rowTop(int r) {
+        if (rowMoving && pickRows.get(r) == menuRow) return L_CARDS_TOP * k;
         return (L_CARDS_TOP + (r - rowsScroll.value) * ROW_PITCH) * k;
     }
 
@@ -3120,6 +3317,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      * taken from the first one.
      */
     private void updateCards() {
+        if (rowMoving) return;      // the rows come again once the moved one is dropped
         if (tab == WATCH_TAB) {
             updateWatchCards();
             return;
@@ -3148,6 +3346,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private void selectTab(int index) {
         if (index == tab) return;
+        endRowEdit();
         tab = index;
         watchStamp = -1;
         watchScroll.snap(0);
@@ -3267,21 +3466,72 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         // Above the dock, or down to the screen's foot once it has gone.
         float bottom = (L_PLATTER_TOP - 8) * k + (h - (L_PLATTER_TOP - 8) * k) * Ui.clamp(dockAway.value);
         c.clipRect(0, (L_TABBAR_TOP + L_TABBAR_H + 8) * k, w, bottom);
+        int lifted = -1;
         for (int r = 0; r < pickRows.size(); r++) {
-            TitleRow row = pickRows.get(r);
-            float top = rowTop(r);
-            if (top > bottom || top + ROW_PITCH * k < L_TABBAR_TOP * k) continue;
-            if (!row.title.isEmpty()) {
-                c.drawText(row.title, MARGIN * k - Ui.leftBearing(lCardTitle, row.title), top + ROW_HEADING * k, lCardTitle);
-            }
-            int n = Math.min(row.items.size(), row.rects.length), focused = -1;
-            for (int i = 0; i < n; i++) {
-                if (row.focus[i].value > 0.02f && (focused < 0 || row.focus[i].value > row.focus[focused].value)) focused = i;
-            }
-            for (int i = 0; i < n; i++) if (i != focused) drawLightCard(c, row, r, i);
-            if (focused >= 0) drawLightCard(c, row, r, focused);
+            if (rowMoving && pickRows.get(r) == menuRow) lifted = r;   // drawn last, over the rows sliding past
+            else drawPickRow(c, r, bottom);
         }
+        if (lifted >= 0) drawPickRow(c, lifted, bottom);
+        drawRowMenu(c);
         c.restore();
+    }
+
+    private void drawPickRow(Canvas c, int r, float bottom) {
+        TitleRow row = pickRows.get(r);
+        float top = rowTop(r);
+        if (top > bottom || top + ROW_PITCH * k < L_TABBAR_TOP * k) return;
+        if (!row.title.isEmpty()) {
+            float x = MARGIN * k - Ui.leftBearing(lCardTitle, row.title), base = top + ROW_HEADING * k;
+            if (rowMoving && row == menuRow) {
+                // Lifted: its heading on a white capsule, with arrows saying where it can go.
+                String text = "↑↓  " + row.title;
+                float pad = 22 * k, half = 26 * k, cy = base - Ui.halfCap(lCardTitle);
+                cell.set(MARGIN * k - pad, cy - half, MARGIN * k + lCardTitle.measureText(text) + pad, cy + half);
+                fill.setShader(null);
+                fill.setColor(0xFFFFFFFF);
+                c.drawRoundRect(cell, half, half, fill);
+                int ink = lCardTitle.getColor();
+                lCardTitle.setColor(L_INK);
+                c.drawText(text, MARGIN * k, base, lCardTitle);
+                lCardTitle.setColor(ink);
+            } else {
+                c.drawText(row.title, x, base, lCardTitle);
+            }
+        }
+        int n = Math.min(row.items.size(), row.rects.length), focused = -1;
+        for (int i = 0; i < n; i++) {
+            if (row.focus[i].value > 0.02f && (focused < 0 || row.focus[i].value > row.focus[focused].value)) focused = i;
+        }
+        for (int i = 0; i < n; i++) if (i != focused) drawLightCard(c, row, r, i);
+        if (focused >= 0) drawLightCard(c, row, r, focused);
+    }
+
+    private static String[] rowMenuLabels() {
+        return new String[] {Ui.tr("Move row"), Ui.tr("Hide row")};
+    }
+
+    /** Move and Hide, glass pills stacked where the row's first card was; the chosen one is white. */
+    private void drawRowMenu(Canvas c) {
+        float open = Ui.clamp(rowMenuOpen.value);
+        if (open < 0.01f || menuRow == null || menuRow.rects.length == 0) return;
+        RectF first = menuRow.rects[0];
+        String[] labels = rowMenuLabels();
+        float bw = (ROW_MENU_W - L_CARD_GAP) * k, bh = ROW_MENU_BH * k, gap = ROW_MENU_GAP * k;
+        float left = MARGIN * k - (1 - open) * 40 * k, top = first.centerY() - (2 * bh + gap) / 2;
+        int alpha = Math.round(255 * open);
+        for (int i = 0; i < labels.length; i++) {
+            cell.set(left, top + i * (bh + gap), left + bw, top + i * (bh + gap) + bh);
+            boolean on = rowMenu && i == rowMenuIndex;
+            fill.setShader(null);
+            fill.setColor(Ui.alpha(on ? 0xFFFFFFFF : tone(0x66FFFFFF, 0x33FFFFFF), open));
+            c.drawRoundRect(cell, bh / 2, bh / 2, fill);
+            menuPaint.setColor(on ? L_INK : tone(L_INK, 0xEBFFFFFF));
+            menuPaint.setAlpha(alpha);
+            fitPaint.set(menuPaint);
+            String label = TextUtils.ellipsize(labels[i], fitPaint, bw - 28 * k, TextUtils.TruncateAt.END).toString();
+            c.drawText(label, cell.centerX(), cell.centerY() + Ui.halfCap(menuPaint), menuPaint);
+        }
+        menuPaint.setColor(L_INK);
     }
 
     private void drawCard(Canvas c, int i) {
@@ -3703,7 +3953,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             case Z_CARDS:
                 if (dx != 0) {
                     int next = Math.max(0, Math.min(cards.size() - 1, cardIndex + dx));
-                    if (next == cardIndex) return true;
+                    if (next == cardIndex) {
+                        if (dx < 0 && tab != WATCH_TAB) openRowMenu();
+                        return true;
+                    }
                     cardIndex = next;
                 } else if (tab != WATCH_TAB && rowIndex + dy >= 0 && rowIndex + dy < pickRows.size()) {
                     // The row above or below: the card nearest the same place on screen.
