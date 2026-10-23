@@ -1709,7 +1709,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             }
         } else if (!pickRows.isEmpty()) {
             // The picks: the current row at the top, its selected card kept on screen; the others keep their place.
-            pickRows.get(rowIndex).index = cardIndex;
+            TitleRow current = pickRows.get(rowIndex);
+            current.index = cardIndex;
+            // Near a row's end its next page comes from the feed (Recs appends it and notifies): the row goes on.
+            if (cardIndex >= current.items.size() - 7) recs.more(TAB_KIND[tab], current.theme);
             for (int r = 0; r < pickRows.size(); r++) {
                 heroChanged |= pickRows.get(r).aim(!sheetOpen && zone == Z_CARDS && r == rowIndex, r == rowIndex, snap);
             }
@@ -2968,7 +2971,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             boolean fresh = r >= pickRows.size();
             if (fresh) pickRows.add(new TitleRow(ROW_LOADER, () -> heroDirty = true));
             TitleRow row = pickRows.get(r);
-            changed |= row.set(rows.get(r).title, rows.get(r).picks);
+            changed |= row.set(rows.get(r).title, rows.get(r).theme, rows.get(r).picks);
             if (fresh) row.aim(false, false, true);
         }
         useRow(rowIndex);   // the row's lists may be new objects even with the same titles
