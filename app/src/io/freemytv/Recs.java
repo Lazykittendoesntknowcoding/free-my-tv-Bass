@@ -405,11 +405,11 @@ final class Recs {
         notifyListeners();
     }
 
-    /** Moves a row the tab shows one place earlier (-1) or later (1). */
-    void moveRow(String tab, String id, int dir) {
+    /** Swaps two rows the tab shows (Home Settings › Content's ← →: with the row above or below in its list). */
+    void swapRows(String tab, String id, String other) {
         List<String> ids = rowsOn(tab);
-        int at = ids.indexOf(id), to = at + dir;
-        if (at < 0 || to < 0 || to >= ids.size()) return;
+        int at = ids.indexOf(id), to = ids.indexOf(other);
+        if (at < 0 || to < 0) return;
         Collections.swap(ids, at, to);
         Prefs.setRowOrder(tab, ids);
         notifyListeners();
