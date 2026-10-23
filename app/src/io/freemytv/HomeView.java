@@ -106,7 +106,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** Cards in a tab: 3 picks, or up to 10 titles to continue watching (about 5 on screen, scrolling sideways). */
     private static final int MAX_CARDS = WatchHistory.MAX, WATCH_VISIBLE = 5;
     /** The picks tabs' rows: one under another (the current one at the top, the next peeking below), ROW_PITCH apart. */
-    private static final float ROW_PITCH = 400, ROW_HEADING = 28, ROW_CARDS = 56, PICK_GROW = 0.30f;
+    private static final float ROW_PITCH = 420, ROW_HEADING = 28, ROW_CARDS = 56, PICK_GROW = 0.40f;
     /** The picks tabs' background comes from the selected card once it has stayed selected this long. */
     private static final long BACKDROP_WAIT_MS = 5000;
     /** The rows' pictures load here (they may download first), apart from the shelf's. */
