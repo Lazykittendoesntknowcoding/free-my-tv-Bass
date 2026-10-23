@@ -141,8 +141,9 @@ public class SettingsActivity extends Activity {
         private boolean night, nightSet;
         private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final TextPaint fitPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-        private StaticLayout noteLayout, creditLayout;   // the left column's note and the TMDB credit, wrapped
-        private String noteShown, creditShown;
+        // The left column's note, the picks' status and the TMDB credit, wrapped (rebuilt only when they change).
+        private StaticLayout noteLayout, statusLayout, creditLayout;
+        private String noteShown, statusShown, creditShown;
         private final Handler handler = new Handler(Looper.getMainLooper());
         private final Spring[] pop = new Spring[12];
         private final List<String> appPkgs = new ArrayList<>(), appLabels = new ArrayList<>();
@@ -378,7 +379,7 @@ public class SettingsActivity extends Activity {
             notice.setColor(tone(L_DIM, 0xB3FFFFFF));
             note.setColor(tone(L_DIM, 0xFF98989D));
             credit.setColor(tone(L_FAINT, 0x8CFFFFFF));
-            noteLayout = creditLayout = null;
+            noteLayout = statusLayout = creditLayout = null;
             invalidate();
         }
 
@@ -569,13 +570,23 @@ public class SettingsActivity extends Activity {
             else if (error.equals(Recs.NO_KNOWN_APPS)) line = Ui.tr("None of the TV's streaming apps can give picks.");
             else if (error.equals(Recs.NO_APPS)) line = Ui.trf("TMDB has none of the TV's apps for tmdb_region={region}.", "region", Recs.REGION);
             else if (!error.isEmpty()) line = Ui.trf("Error: {error}.", "error", error);
-            else if (count > 0) line = Ui.trf("On · {n} titles from the TV's apps, 3 new ones every hour.", "n", count);
+            else if (count > 0) line = Ui.trf("On · {n} titles from the TV's apps, new picks at 5:00, 12:00 and 18:00.", "n", count);
             else line = Ui.tr("Fetching titles…");
-            c.drawText(TextUtils.ellipsize(line, notice, room, TextUtils.TruncateAt.END).toString(), x, y + 42 * k, notice);
+            // The status on up to two lines (the refresh times don't fit on one).
+            int width = Math.round(room);
+            if (statusLayout == null || !line.equals(statusShown) || statusLayout.getWidth() != width) {
+                statusShown = line;
+                statusLayout = StaticLayout.Builder.obtain(line, 0, line.length(), notice, width).setMaxLines(2)
+                        .setEllipsize(TextUtils.TruncateAt.END).build();
+            }
+            c.save();
+            c.translate(x, y + 42 * k - statusLayout.getLineBaseline(0));
+            statusLayout.draw(c);
+            c.restore();
+            y += statusLayout.getLineBaseline(statusLayout.getLineCount() - 1) - statusLayout.getLineBaseline(0);
             // The credit, whole: on two lines if it needs them.
             String text = Ui.tr("This product uses the TMDB API but is not endorsed or certified by TMDB.");
             if (!Config.WATCHMODE_KEY.trim().isEmpty()) text += " " + Ui.tr("Links to the titles by Watchmode.");
-            int width = Math.round(room);
             if (creditLayout == null || !text.equals(creditShown) || creditLayout.getWidth() != width) {
                 creditShown = text;
                 creditLayout = StaticLayout.Builder.obtain(text, 0, text.length(), credit, width).setMaxLines(3)
