@@ -857,6 +857,137 @@ final class Recs {
         return HomeApps.app(p.pkg, serviceName(p), p.link);
     }
 
+    /** What Play opens the pick in (the title popup's button names it): Apple TV, Stremio, or the service's app. */
+    String playsIn(Pick p) {
+        if ("appletv".equals(p.app) && (p.link != null || linksOn())) return SERVICE_NAME.get("appletv");
+        if (stremio()) return "Stremio";
+        return serviceName(p);
+    }
+
+    // MARK: - The title popup
+
+    /** What the title popup shows besides the pick: fetched when it opens (nothing is kept on disk), a few in memory. */
+    static final class Info {
+        String line = "", cast = "", platforms = "";
+        final List<String[]> ratings = new ArrayList<>();   // {source, score}: IMDb, Rotten Tomatoes, Metacritic, else TMDB
+    }
+
+    private final Map<String, Info> infos = new LinkedHashMap<String, Info>(16, 0.75f, true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<String, Info> e) { return size() > 12; }
+    };
+    private final Set<String> fetchingInfo = java.util.Collections.synchronizedSet(new HashSet<>());
+
+    /** The pick's popup details if they're in; else null, and `then` runs on the main thread once they are. */
+    Info info(Pick p, Runnable then) {
+        final String key = key(p);
+        synchronized (infos) {
+            Info i = infos.get(key);
+            if (i != null) return i;
+        }
+        if (!fetchingInfo.add(key)) return null;
+        quick.execute(() -> {
+            Info i = new Info();
+            try {
+                fetchInfo(p, i);
+            } catch (Exception e) {
+                AppLog.w("title popup: " + e.getMessage());
+            }
+            synchronized (infos) { infos.put(key, i); }
+            fetchingInfo.remove(key);
+            main.post(then);
+        });
+        return null;
+    }
+
+    /** Year · genres · runtime (or seasons), the first names of the cast, the services it streams on, the ratings. */
+    private void fetchInfo(Pick p, Info info) throws Exception {
+        boolean movie = p.kind.equals("movie");
+        JSONObject o = get("/" + p.kind + "/" + p.id + "?language=" + lang() + "&append_to_response=credits,watch/providers,external_ids");
+        List<String> parts = new ArrayList<>();
+        String date = o.optString(movie ? "release_date" : "first_air_date", "");
+        if (date.length() >= 4) parts.add(date.substring(0, 4));
+        JSONArray genres = o.optJSONArray("genres");
+        for (int i = 0; genres != null && i < Math.min(2, genres.length()); i++) parts.add(genre(genres.getJSONObject(i).optString("name")));
+        if (movie) {
+            int minutes = o.optInt("runtime");
+            if (minutes > 0) parts.add(minutes >= 60 ? Ui.trf("{h}h {m}m", "h", minutes / 60, "m", minutes % 60) : Ui.trf("{m}m", "m", minutes));
+        } else {
+            int seasons = o.optInt("number_of_seasons");
+            if (seasons > 0) parts.add(Ui.plural("plural|one:{n} season|other:{n} seasons", seasons));
+        }
+        info.line = String.join(" · ", parts);
+        JSONObject credits = o.optJSONObject("credits");
+        JSONArray cast = credits == null ? null : credits.optJSONArray("cast");
+        List<String> names = new ArrayList<>();
+        for (int i = 0; cast != null && i < cast.length() && names.size() < 4; i++) {
+            String name = cast.getJSONObject(i).optString("name");
+            if (!name.isEmpty()) names.add(name);
+        }
+        info.cast = String.join(", ", names);
+        JSONObject wp = o.optJSONObject("watch/providers");
+        JSONObject results = wp == null ? null : wp.optJSONObject("results");
+        JSONObject here = results == null ? null : results.optJSONObject(REGION);
+        JSONArray flat = here == null ? null : here.optJSONArray("flatrate");
+        List<String> services = new ArrayList<>();
+        for (int i = 0; flat != null && i < flat.length() && services.size() < 4; i++) {
+            String name = flat.getJSONObject(i).optString("provider_name");
+            if (!name.isEmpty() && !services.contains(name)) services.add(name);
+        }
+        info.platforms = String.join(", ", services);
+        JSONObject ids = o.optJSONObject("external_ids");
+        String imdb = o.optString("imdb_id", ids == null ? "" : ids.optString("imdb_id", ""));
+        if (!imdb.startsWith("tt") && ids != null) imdb = ids.optString("imdb_id", "");
+        omdb(imdb, info);
+        if (info.ratings.isEmpty() && o.optInt("vote_count") >= 20) {
+            info.ratings.add(new String[] {"TMDB", String.format(Ui.locale(), "%.1f", o.optDouble("vote_average", 0))});
+        }
+    }
+
+    /** IMDb, Rotten Tomatoes and Metacritic scores from OMDb (with omdb_key in config.properties). */
+    private static void omdb(String imdb, Info info) {
+        String key = Config.OMDB_KEY.trim();
+        if (key.isEmpty() || imdb == null || !imdb.startsWith("tt")) return;
+        try {
+            HttpURLConnection c = (HttpURLConnection) new URL("https://www.omdbapi.com/?i=" + URLEncoder.encode(imdb, "UTF-8")
+                    + "&apikey=" + URLEncoder.encode(key, "UTF-8")).openConnection();
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(10000);
+            JSONObject o;
+            try {
+                int code = c.getResponseCode();
+                if (code != 200) throw new IOException("OMDb returned HTTP " + code);   // not the URL: it has the key
+                o = new JSONObject(read(c.getInputStream()));
+            } finally {
+                c.disconnect();
+            }
+            JSONArray list = o.optJSONArray("Ratings");
+            for (int i = 0; list != null && i < list.length(); i++) {
+                JSONObject r = list.getJSONObject(i);
+                String source = r.optString("Source"), value = r.optString("Value");
+                if (value.isEmpty() || value.equals("N/A")) continue;
+                if (source.equals("Internet Movie Database")) info.ratings.add(new String[] {"IMDb", value.replace("/10", "")});
+                else if (source.equals("Rotten Tomatoes")) info.ratings.add(new String[] {"Rotten Tomatoes", value});
+                else if (source.equals("Metacritic")) info.ratings.add(new String[] {"Metacritic", value.replace("/100", "")});
+            }
+            String rating = o.optString("imdbRating", "");
+            if (info.ratings.isEmpty() && !rating.isEmpty() && !rating.equals("N/A")) info.ratings.add(new String[] {"IMDb", rating});
+        } catch (Exception e) {
+            AppLog.w("OMDb: " + e.getClass().getSimpleName());
+        }
+    }
+
+    /** The pick's big photo on disk (TMDB's w1280 on a 720p UI), downloaded now if missing: blocks. null: none. */
+    File bigImage(Pick p) {
+        if (p == null || p.backdrop == null || p.backdrop.isEmpty()) return null;
+        try {
+            download(p);
+            return imageFile(p);
+        } catch (IOException e) {
+            AppLog.w("popup image: " + e.getMessage());
+            return null;
+        }
+    }
+
     /** The YouTube id of the title's trailer: an official trailer first, then any trailer, then a teaser. */
     private static String trailer(JSONObject videos) {
         JSONArray list = videos == null ? null : videos.optJSONArray("results");
