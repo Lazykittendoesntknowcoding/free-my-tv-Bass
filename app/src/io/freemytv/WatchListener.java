@@ -19,11 +19,15 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.service.notification.NotificationListenerService;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -34,6 +38,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Continue watching, recorded on the TV itself: streaming apps announce what they're playing (title, artwork,
@@ -203,8 +209,17 @@ public class WatchListener extends NotificationListenerService implements MediaS
         e.duration = duration;
         e.updatedAt = System.currentTimeMillis();
         final Context app = getApplicationContext();
+        final String linkFor = e.title + "|" + e.subtitle;
         io.execute(() -> WatchHistory.update(app, list -> {
-            for (Iterator<WatchHistory.Entry> it = list.iterator(); it.hasNext(); ) if (it.next().key.equals(e.key)) it.remove();
+            for (Iterator<WatchHistory.Entry> it = list.iterator(); it.hasNext(); ) {
+                WatchHistory.Entry old = it.next();
+                if (!old.key.equals(e.key)) continue;
+                if (old.linkFor.equals(linkFor)) {   // the same episode: the link found for it still holds
+                    e.link = old.link;
+                    e.linkFor = old.linkFor;
+                }
+                it.remove();
+            }
             if (!finished) list.add(0, e);
         }));
         if (finished) {
@@ -216,6 +231,10 @@ public class WatchListener extends NotificationListenerService implements MediaS
         String artKey = key + "|" + title;
         if (artKey.equals(t.artFor)) return;
         t.artFor = artKey;
+        if (WatchHistory.isStremio(pkg)) {
+            final String name = e.title, episode = e.subtitle, id = e.mediaId + " " + e.mediaUri;
+            io.execute(() -> findStremioLink(app, key, linkFor, name, episode, id));
+        }
         Bitmap art = md.getBitmap(MediaMetadata.METADATA_KEY_ART);
         if (art == null) art = md.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
         if (art == null) art = md.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON);
@@ -248,6 +267,74 @@ public class WatchListener extends NotificationListenerService implements MediaS
             if (!tmp.renameTo(f)) AppLog.w("continue watching: artwork not saved");
         } catch (Exception e) {
             AppLog.w("continue watching artwork: " + e.getMessage());
+        }
+    }
+
+    private static final Pattern IMDB = Pattern.compile("(tt\\d{6,10})(?::(\\d+):(\\d+))?");
+    private static final Pattern[] EPISODE = {
+            Pattern.compile("\\bS(\\d{1,2})\\s*[:.]?\\s*E(\\d{1,3})\\b", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("\\b(\\d{1,2})x(\\d{1,3})\\b"),
+            Pattern.compile("Season\\s*(\\d{1,2}).{0,12}?Episode\\s*(\\d{1,3})", Pattern.CASE_INSENSITIVE)};
+
+    /**
+     * Stremio doesn't say which title it plays, only its name: TMDB finds its IMDb id, and Stremio's own link opens
+     * that title's page (the episode's, for a series), one click from Resume. Saved with the entry.
+     */
+    private static void findStremioLink(Context c, String key, String linkFor, String name, String episode, String ids) {
+        try {
+            String imdb = null, type = null;
+            int season = -1, ep = -1;
+            Matcher m = IMDB.matcher(ids);
+            if (m.find()) {
+                imdb = m.group(1);
+                if (m.group(2) != null) {
+                    season = Integer.parseInt(m.group(2));
+                    ep = Integer.parseInt(m.group(3));
+                }
+                type = season >= 0 ? "series" : null;
+            }
+            String query = name;
+            for (Pattern p : EPISODE) {
+                Matcher n = p.matcher(name + " " + episode);
+                if (!n.find()) continue;
+                if (season < 0) {
+                    season = Integer.parseInt(n.group(1));
+                    ep = Integer.parseInt(n.group(2));
+                }
+                int at = name.indexOf(n.group());
+                if (at > 0) query = name.substring(0, at).replaceAll("[\\s\\-:|·]+$", "");
+                break;
+            }
+            if (imdb == null || type == null) {
+                if (!Recs.hasKey(c) || query.trim().isEmpty()) return;
+                JSONArray results = Recs.get("/search/multi?query=" + URLEncoder.encode(query.trim(), "UTF-8"))
+                        .optJSONArray("results");
+                JSONObject hit = null;
+                for (int i = 0; results != null && i < results.length() && hit == null; i++) {
+                    JSONObject r = results.getJSONObject(i);
+                    String mt = r.optString("media_type");
+                    if (mt.equals("tv") || (mt.equals("movie") && season < 0)) hit = r;
+                }
+                if (hit == null) return;
+                boolean tv = hit.optString("media_type").equals("tv");
+                type = tv ? "series" : "movie";
+                if (imdb == null) {
+                    imdb = Recs.get("/" + (tv ? "tv" : "movie") + "/" + hit.getLong("id") + "/external_ids").optString("imdb_id");
+                }
+            }
+            if (imdb == null || !imdb.startsWith("tt")) return;
+            final String link = "stremio:///detail/" + type + "/" + imdb
+                    + (type.equals("series") && season >= 0 ? "/" + imdb + ":" + season + ":" + ep : "");
+            WatchHistory.update(c, list -> {
+                for (WatchHistory.Entry e : list) {
+                    if (!e.key.equals(key)) continue;
+                    e.link = link;
+                    e.linkFor = linkFor;
+                }
+            });
+            AppLog.w("continue watching: " + name + " in Stremio is " + link);
+        } catch (Exception e) {
+            AppLog.w("continue watching: no Stremio link for " + name + ": " + e.getMessage());
         }
     }
 

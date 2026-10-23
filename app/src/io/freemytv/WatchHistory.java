@@ -35,6 +35,8 @@ final class WatchHistory {
     static final class Entry {
         String key = "", pkg = "", title = "", subtitle = "";
         String mediaId = "", mediaUri = "";
+        /** A link found for the title afterwards (Stremio: its page, from TMDB), for the subtitle it was found for. */
+        String link = "", linkFor = "";
         long position, duration, updatedAt;
 
         float progress() {
@@ -43,7 +45,7 @@ final class WatchHistory {
 
         JSONObject json() throws Exception {
             return new JSONObject().put("key", key).put("pkg", pkg).put("title", title).put("subtitle", subtitle)
-                    .put("mediaId", mediaId).put("mediaUri", mediaUri)
+                    .put("mediaId", mediaId).put("mediaUri", mediaUri).put("link", link).put("linkFor", linkFor)
                     .put("position", position).put("duration", duration).put("updatedAt", updatedAt);
         }
 
@@ -55,6 +57,8 @@ final class WatchHistory {
             e.subtitle = o.optString("subtitle");
             e.mediaId = o.optString("mediaId");
             e.mediaUri = o.optString("mediaUri");
+            e.link = o.optString("link");
+            e.linkFor = o.optString("linkFor");
             e.position = o.optLong("position");
             e.duration = o.optLong("duration");
             e.updatedAt = o.optLong("updatedAt");
@@ -140,18 +144,36 @@ final class WatchHistory {
     private static final Pattern YOUTUBE_ID = Pattern.compile("[A-Za-z0-9_-]{11}");
     private static final Pattern NETFLIX_ID = Pattern.compile("\\d{5,10}");
 
+    static boolean isYouTube(String pkg) {
+        return pkg.startsWith("com.google.android.youtube") && !pkg.equals("com.google.android.youtube.tvmusic");
+    }
+
+    static boolean isStremio(String pkg) {
+        return pkg.startsWith("com.stremio");
+    }
+
     /**
-     * The link that plays this title straight away in its app, when we know one: the app's own media link, a YouTube
-     * video by its ID, a Netflix title by its ID. null: only the app can be opened.
+     * The link that opens this title in its app, when we know one: the app's own media link, a YouTube video by its
+     * ID, a Netflix title by its ID, the Stremio page found on TMDB. YouTube on TVs often keeps the video ID to itself:
+     * then a search for the video's title and channel, where it's the first result. null: only the app can be opened.
      */
     static Intent playIntent(Entry e) {
         String uri = null;
         if (e.mediaUri.startsWith("http://") || e.mediaUri.startsWith("https://")) {
             uri = e.mediaUri;
-        } else if (e.pkg.startsWith("com.google.android.youtube") && YOUTUBE_ID.matcher(e.mediaId).matches()) {
+        } else if (isYouTube(e.pkg) && YOUTUBE_ID.matcher(e.mediaId).matches()) {
             uri = "https://www.youtube.com/watch?v=" + e.mediaId;
         } else if (e.pkg.equals("com.netflix.ninja") && NETFLIX_ID.matcher(e.mediaId).matches()) {
             uri = "https://www.netflix.com/watch/" + e.mediaId;
+        } else if (!e.link.isEmpty()) {
+            uri = e.link;
+        } else if (isYouTube(e.pkg) && !e.title.isEmpty()) {
+            String q = (e.title + " " + e.subtitle).trim();
+            try {
+                uri = "https://www.youtube.com/results?search_query=" + java.net.URLEncoder.encode(q, "UTF-8");
+            } catch (java.io.UnsupportedEncodingException ignored) {
+                // UTF-8 is always there
+            }
         }
         if (uri == null) return null;
         Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(uri));
