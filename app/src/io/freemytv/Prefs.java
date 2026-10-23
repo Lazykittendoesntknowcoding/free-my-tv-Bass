@@ -222,7 +222,7 @@ final class Prefs {
 
     /**
      * The round buttons at the top right, in order: "live", "inputs" and/or "settings". null until the user edits
-     * them (then HomeApps.TOP_DEFAULT applies); empty when they took all three off.
+     * them (then HomeApps.TOP_DEFAULT applies); empty when they took them all off.
      */
     static List<String> topButtons() {
         String v = sp().getString("topButtons", null);
@@ -230,6 +230,18 @@ final class Prefs {
         List<String> out = new ArrayList<>();
         for (String p : v.split(",")) if (!p.isEmpty()) out.add(p);
         return out;
+    }
+
+    /** Once: a list edited before the Content button existed gets it, before Settings (or at the end). */
+    static void addContentButton() {
+        if (sp().getBoolean("topContentAdded", false)) return;
+        List<String> keys = topButtons();
+        if (keys != null && !keys.isEmpty() && !keys.contains("content")) {
+            int at = keys.indexOf("settings");
+            keys.add(at < 0 ? keys.size() : at, "content");
+            setTopButtons(keys);
+        }
+        put("topContentAdded", true);
     }
 
     static void setTopButtons(List<String> keys) {

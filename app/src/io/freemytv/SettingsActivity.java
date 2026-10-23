@@ -64,6 +64,11 @@ public class SettingsActivity extends Activity {
             view.pause();
             showPreview();
         }
+        // The home screen's Content button: straight to Home Settings › Content.
+        if (preview == null && getIntent().getBooleanExtra("content", false)) {
+            getIntent().removeExtra("content");
+            view.openContentShortcut();
+        }
     }
 
     @Override protected void onNewIntent(Intent intent) {
@@ -643,6 +648,10 @@ public class SettingsActivity extends Activity {
                             } else if (screen == CONTENT_EDIT) {
                                 focus = java.util.Arrays.asList(CONTENT_TABS_IDS).indexOf(contentTab);
                                 screen = CONTENT_TABS;
+                            } else if (screen == CONTENT_TABS && contentShortcut) {
+                                contentShortcut = false;    // opened from the home screen: Back goes back there
+                                activity.finish();
+                                return true;
                             } else if (screen == CONTENT_TABS) {
                                 focus = contentRow();
                                 screen = HOME_SETTINGS;
@@ -864,6 +873,15 @@ public class SettingsActivity extends Activity {
         // MARK: - Content (which rows Explore, Movies and Shows show)
 
         private static final String[] CONTENT_TABS_IDS = {"all", "movie", "tv"};
+        private boolean contentShortcut;    // Content was opened by the home screen's button
+
+        void openContentShortcut() {
+            screen = CONTENT_TABS;
+            focus = 0;
+            contentShortcut = true;
+            invalidate();
+            spoken.focusMoved();
+        }
         private String contentTab = "all", contentGroup = "";
         // The list: {"row", id} or {"group", group}. The tab's rows, then the groups to add more from.
         private final List<String[]> contentItems = new ArrayList<>();
@@ -1060,7 +1078,7 @@ public class SettingsActivity extends Activity {
         private void toggleShelfApp() {
             String pkg = shelfRows.get(pickScroll + focus)[0];
             if (shelfOrder.contains(pkg)) shelfOrder.remove(pkg);
-            else if (editingTop || shelfOrder.size() < HomeApps.MAX_SHELF) shelfOrder.add(pkg);   // three buttons: no limit to reach
+            else if (editingTop || shelfOrder.size() < HomeApps.MAX_SHELF) shelfOrder.add(pkg);   // four buttons: no limit to reach
             else return;
             refreshShelfRows(pkg);
         }
@@ -1220,6 +1238,7 @@ public class SettingsActivity extends Activity {
             } else if (screen == HOME_SETTINGS && focus == contentRow()) {
                 screen = CONTENT_TABS;
                 focus = 0;
+                contentShortcut = false;
             } else if (screen == CONTENT_TABS) {
                 openContent(CONTENT_TABS_IDS[focus]);
             } else if (screen == CONTENT_EDIT || screen == CONTENT_ADD) {
