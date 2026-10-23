@@ -32,7 +32,7 @@ import java.util.regex.Pattern;
 final class WatchHistory {
     private WatchHistory() {}
 
-    static final int MAX = 20;
+    static final int MAX = 50;
     /** Watched past this share of its length: finished, it leaves the list. */
     static final float FINISHED = 0.95f;
 

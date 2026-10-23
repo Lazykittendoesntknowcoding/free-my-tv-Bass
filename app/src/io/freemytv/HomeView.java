@@ -103,7 +103,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** Continue watching, then the picks: Explore, Movies, Shows. */
     private static final int TABS = 4, WATCH_TAB = 0;
     private static final String[] TAB_KIND = {null, null, "movie", "tv"};
-    /** Cards in a tab: 3 picks, or up to 20 titles to continue watching (about 5 on screen, scrolling sideways). */
+    /** Cards in a tab: 3 picks, or up to 50 titles to continue watching (about 5 on screen, scrolling sideways). */
     private static final int MAX_CARDS = WatchHistory.MAX, WATCH_VISIBLE = 5;
     /** The picks tabs' rows: one under another (the current one at the top, the next peeking below), ROW_PITCH apart. */
     private static final float ROW_PITCH = 420, ROW_HEADING = 28, ROW_CARDS = 56, PICK_GROW = 0.40f;
@@ -182,6 +182,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private long watchStamp = -1;
     private final Map<String, Bitmap> watchArt = new HashMap<>();
     private final java.util.Set<String> watchArtLoading = new java.util.HashSet<>();
+    private volatile java.util.Set<String> watchWanted = java.util.Collections.emptySet();   // the window's titles
     private final List<HomeApps.Item> lightButtons = new ArrayList<>();
     private Paint lTitle, lTab, lTabOn, lCardTitle, lCardMeta, lTip, lDate, lClock, lWeather;
     private Shader lightGradient;
@@ -1812,6 +1813,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (first != watchScroll.target) {
                 watchScroll.target = first;
                 heroChanged = true;
+                loadWatchArt();   // the pictures follow the row: the ones coming in load, the ones left behind go
             }
             if (snap) {
                 watchScroll.snap(first);
@@ -3782,17 +3784,25 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
     }
 
-    /** Each title's artwork, cut to the card's 16:9 (in the background; the card shows the app's name until then). */
+    /**
+     * The artwork of the cards on screen and one on each side (7 at most, however long the list), cut to the card's
+     * 16:9 in the background: on screen first, then ahead, then behind.
+     */
     private void loadWatchArt() {
         final Context c = getContext().getApplicationContext();
-        if (watchRects[0].width() < 16) return;   // not laid out yet
+        if (tab != WATCH_TAB || watchRects[0].width() < 16) return;   // not laid out yet
         final int cw = Math.round(watchRects[0].width()), ch = Math.round(watchRects[0].height());
+        int first = Math.round(watchScroll.target), to = Math.min(cards.size(), first + WATCH_VISIBLE + 1);
+        List<Recs.Pick> window = new ArrayList<>();
+        for (int i = first; i < to; i++) window.add(cards.get(i));
+        if (first - 1 >= 0 && first - 1 < cards.size()) window.add(cards.get(first - 1));
         final java.util.Set<String> keep = new java.util.HashSet<>();
-        for (Recs.Pick p : cards) keep.add(p.watchKey);
-        // Keep the pictures of titles still on the row, so a card keeps its picture while the list is read again (it
+        for (Recs.Pick p : window) keep.add(p.watchKey);
+        watchWanted = keep;
+        // Titles still in the window keep their pictures, so a card keeps its picture while the list is read again (it
         // changes every 30 s while something plays).
         watchArt.keySet().removeIf(id -> !keep.contains(artTitle(id)));
-        for (Recs.Pick p : cards) {
+        for (Recs.Pick p : window) {
             final String key = p.watchKey;
             final java.io.File f = WatchHistory.art(c, key);
             final String id = key + "|" + f.lastModified() + "|" + cw;
@@ -3800,7 +3810,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             watchArtLoading.add(id);
             LOADER.execute(() -> {
                 Bitmap cut = null;
-                Bitmap b = android.graphics.BitmapFactory.decodeFile(f.getPath());
+                Bitmap b = watchWanted.contains(key) ? android.graphics.BitmapFactory.decodeFile(f.getPath()) : null;
                 if (b != null) {
                     float scale = Math.max(cw / (float) b.getWidth(), ch / (float) b.getHeight());
                     int sw = Math.round(cw / scale), sh = Math.round(ch / scale);
@@ -3812,7 +3822,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 final Bitmap done = cut;
                 handler.post(() -> {
                     watchArtLoading.remove(id);
-                    if (done == null) return;
+                    if (done == null || !watchWanted.contains(key)) return;   // scrolled away meanwhile
                     // One picture per title: an older one (other size, other episode) makes way.
                     watchArt.keySet().removeIf(old -> old.startsWith(key + "|"));
                     watchArt.put(id, done);
