@@ -9,11 +9,12 @@ import android.content.Context;
 import android.os.PersistableBundle;
 
 /**
- * Runs the mode switches in the background (HomeMode). As a job, the system keeps the app's main process running until
- * the switch finishes, even with the screen showing something else.
+ * Runs the mode switches (HomeMode) and Optimize in the background. As a job, the system keeps the app's main process
+ * running until the work finishes, even with the screen showing something else.
  */
 public class ModeJob extends JobService {
-    static final String APPLY = "apply", VERIFY = "verify", REVERT = "revert", MEMORY = "memory", REMOTE = "remote";
+    static final String APPLY = "apply", VERIFY = "verify", REVERT = "revert", MEMORY = "memory", REMOTE = "remote",
+            OPTIMIZE = "optimize", DEEP_OPTIMIZE = "deep-optimize";
 
     @Override public boolean onStartJob(JobParameters params) {
         PersistableBundle extras = params.getExtras();
@@ -28,6 +29,8 @@ public class ModeJob extends JobService {
                     case REVERT: HomeMode.revertHomeNow(app); break;
                     case MEMORY: HomeMode.measureMemoryNow(app, mode); break;
                     case REMOTE: HomeMode.ensureRemoteServiceNow(app); break;
+                    case OPTIMIZE: Optimize.quickNow(app); break;
+                    case DEEP_OPTIMIZE: Optimize.deepNow(app); break;
                     default: break;
                 }
             } catch (Throwable t) {
