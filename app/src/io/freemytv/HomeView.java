@@ -3534,7 +3534,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private static String[] rowMenuLabels() {
-        return new String[] {Ui.tr("Move row"), Ui.tr("Hide row")};
+        return new String[] {Ui.tr("row|Move"), Ui.tr("row|Hide")};
     }
 
     /** Move and Hide, glass pills stacked where the row's first card was; the chosen one is white. */
