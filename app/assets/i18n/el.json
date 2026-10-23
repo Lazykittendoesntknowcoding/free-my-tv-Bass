@@ -66,6 +66,7 @@
  "Light": "Ανοιχτό",
  "Links to the titles by Watchmode.": "Σύνδεσμοι τίτλων από το Watchmode.",
  "Live TV": "Ζωντανή TV",
+ "MEMORY": "ΜΝΗΜΗ",
  "Measuring Free My TV…": "Μέτρηση του Free My TV…",
  "Measuring the original home screen…": "Μέτρηση της αρχικής οθόνης…",
  "Mostly Clear": "Κυρίως αίθριος",
@@ -120,6 +121,7 @@
  "Removed from Continue Watching: {title}": "Αφαιρέθηκε από τη Συνέχεια παρακολούθησης: {title}",
  "Removed from the shelf: {app}": "Αφαιρέθηκε από τις αγαπημένες εφαρμογές: {app}",
  "Restoring the original home screen…": "Επαναφορά της αρχικής οθόνης…",
+ "STORAGE": "ΑΠΟΘΗΚΕΥΣΗ",
  "Screensaver": "Προφύλαξη οθόνης",
  "Screensaver background": "Φόντο προφύλαξης οθόνης",
  "Screensaver, preview": "Προφύλαξη οθόνης, προεπισκόπηση",
@@ -237,7 +239,8 @@
  "{n} on": "{n} ενεργές",
  "{n} sec": "{n} δευτ.",
  "{row} · {kind}": "{row} · {kind}",
- "“{row}” is hidden. Home Settings › Content shows it again.": "Η σειρά «{row}» κρύφτηκε. Ρυθμίσεις αρχικής › Περιεχόμενο την επαναφέρει.",
+ "{used} of {total}": "{used} από {total}",
+ "“{row}” is hidden. Settings › Content shows it again.": "Η σειρά «{row}» κρύφτηκε. Ρυθμίσεις › Περιεχόμενο την επαναφέρει.",
  "← → to move · OK to drop · Back to cancel": "← → μετακίνηση · OK τοποθέτηση · Πίσω ακύρωση",
  "↑ ↓ to move · OK to drop · Back to cancel": "↑ ↓ μετακίνηση · OK τοποθέτηση · Πίσω ακύρωση"
 }

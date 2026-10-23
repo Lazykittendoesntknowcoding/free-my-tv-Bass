@@ -66,6 +66,7 @@
  "Light": "Sáng",
  "Links to the titles by Watchmode.": "Liên kết tựa phim: Watchmode.",
  "Live TV": "TV trực tiếp",
+ "MEMORY": "BỘ NHỚ",
  "Measuring Free My TV…": "Đang đo Free My TV…",
  "Measuring the original home screen…": "Đang đo màn hình chính gốc…",
  "Mostly Clear": "Phần lớn quang đãng",
@@ -120,6 +121,7 @@
  "Removed from Continue Watching: {title}": "Đã xóa khỏi Xem tiếp: {title}",
  "Removed from the shelf: {app}": "Đã gỡ khỏi ứng dụng yêu thích: {app}",
  "Restoring the original home screen…": "Đang khôi phục màn hình chính gốc…",
+ "STORAGE": "DUNG LƯỢNG",
  "Screensaver": "Trình bảo vệ màn hình",
  "Screensaver background": "Nền trình bảo vệ màn hình",
  "Screensaver, preview": "Trình bảo vệ màn hình, xem trước",
@@ -237,7 +239,8 @@
  "{n} on": "{n} đang bật",
  "{n} sec": "{n} giây",
  "{row} · {kind}": "{row} · {kind}",
- "“{row}” is hidden. Home Settings › Content shows it again.": "Đã ẩn \"{row}\". Màn hình chính › Nội dung để hiện lại.",
+ "{used} of {total}": "{used} / {total}",
+ "“{row}” is hidden. Settings › Content shows it again.": "Đã ẩn \"{row}\". Cài đặt › Nội dung để hiện lại.",
  "← → to move · OK to drop · Back to cancel": "← → di chuyển · OK đặt · Quay lại hủy",
  "↑ ↓ to move · OK to drop · Back to cancel": "↑ ↓ di chuyển · OK đặt · Quay lại hủy"
 }

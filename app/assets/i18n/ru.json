@@ -66,6 +66,7 @@
  "Light": "Светлая",
  "Links to the titles by Watchmode.": "Ссылки на тайтлы: Watchmode.",
  "Live TV": "Телеканалы",
+ "MEMORY": "ПАМЯТЬ",
  "Measuring Free My TV…": "Замер Free My TV…",
  "Measuring the original home screen…": "Замер заводского главного экрана…",
  "Mostly Clear": "Малооблачно",
@@ -120,6 +121,7 @@
  "Removed from Continue Watching: {title}": "Удалено из «Продолжить просмотр»: {title}",
  "Removed from the shelf: {app}": "Убрано из избранных приложений: {app}",
  "Restoring the original home screen…": "Восстановление заводского главного экрана…",
+ "STORAGE": "ХРАНИЛИЩЕ",
  "Screensaver": "Заставка",
  "Screensaver background": "Фон заставки",
  "Screensaver, preview": "Заставка, предпросмотр",
@@ -237,7 +239,8 @@
  "{n} on": "Вкл.: {n}",
  "{n} sec": "{n} с",
  "{row} · {kind}": "{row} · {kind}",
- "“{row}” is hidden. Home Settings › Content shows it again.": "Ряд «{row}» скрыт. Вернуть: Главный экран › Контент.",
+ "{used} of {total}": "{used} из {total}",
+ "“{row}” is hidden. Settings › Content shows it again.": "Ряд «{row}» скрыт. Вернуть: Настройки › Контент.",
  "← → to move · OK to drop · Back to cancel": "← → — переместить · OK — оставить · Назад — отмена",
  "↑ ↓ to move · OK to drop · Back to cancel": "↑ ↓ — переместить · OK — оставить · Назад — отмена"
 }

@@ -66,6 +66,7 @@
  "Light": "Açık",
  "Links to the titles by Watchmode.": "Başlık bağlantıları: Watchmode.",
  "Live TV": "Canlı TV",
+ "MEMORY": "BELLEK",
  "Measuring Free My TV…": "Free My TV ölçülüyor…",
  "Measuring the original home screen…": "Orijinal ana ekran ölçülüyor…",
  "Mostly Clear": "Çoğunlukla Açık",
@@ -120,6 +121,7 @@
  "Removed from Continue Watching: {title}": "İzlemeye Devam Et'ten kaldırıldı: {title}",
  "Removed from the shelf: {app}": "Favori uygulamalardan çıkarıldı: {app}",
  "Restoring the original home screen…": "Orijinal ana ekran geri yükleniyor…",
+ "STORAGE": "DEPOLAMA",
  "Screensaver": "Ekran Koruyucu",
  "Screensaver background": "Ekran koruyucu arka planı",
  "Screensaver, preview": "Ekran Koruyucu, önizleme",
@@ -237,7 +239,8 @@
  "{n} on": "{n} açık",
  "{n} sec": "{n} sn",
  "{row} · {kind}": "{row} · {kind}",
- "“{row}” is hidden. Home Settings › Content shows it again.": "\"{row}\" gizlendi. Ana Ekran Ayarları › İçerik yeniden gösterir.",
+ "{used} of {total}": "{used} / {total}",
+ "“{row}” is hidden. Settings › Content shows it again.": "\"{row}\" gizlendi. Ayarlar › İçerik yeniden gösterir.",
  "← → to move · OK to drop · Back to cancel": "← → taşı · OK bırak · Geri iptal et",
  "↑ ↓ to move · OK to drop · Back to cancel": "↑ ↓ taşı · OK bırak · Geri iptal et"
 }

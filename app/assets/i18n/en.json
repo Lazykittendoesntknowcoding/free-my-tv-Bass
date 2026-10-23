@@ -66,6 +66,7 @@
  "Light": "Light",
  "Links to the titles by Watchmode.": "Links to the titles by Watchmode.",
  "Live TV": "Live TV",
+ "MEMORY": "MEMORY",
  "Measuring Free My TV…": "Measuring Free My TV…",
  "Measuring the original home screen…": "Measuring the original home screen…",
  "Mostly Clear": "Mostly Clear",
@@ -120,6 +121,7 @@
  "Removed from Continue Watching: {title}": "Removed from Continue Watching: {title}",
  "Removed from the shelf: {app}": "Removed from the shelf: {app}",
  "Restoring the original home screen…": "Restoring the original home screen…",
+ "STORAGE": "STORAGE",
  "Screensaver": "Screensaver",
  "Screensaver background": "Screensaver background",
  "Screensaver, preview": "Screensaver, preview",
@@ -237,7 +239,8 @@
  "{n} on": "{n} on",
  "{n} sec": "{n} sec",
  "{row} · {kind}": "{row} · {kind}",
- "“{row}” is hidden. Home Settings › Content shows it again.": "“{row}” is hidden. Home Settings › Content shows it again.",
+ "{used} of {total}": "{used} of {total}",
+ "“{row}” is hidden. Settings › Content shows it again.": "“{row}” is hidden. Settings › Content shows it again.",
  "← → to move · OK to drop · Back to cancel": "← → to move · OK to drop · Back to cancel",
  "↑ ↓ to move · OK to drop · Back to cancel": "↑ ↓ to move · OK to drop · Back to cancel"
 }

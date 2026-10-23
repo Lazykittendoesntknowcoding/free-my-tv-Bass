@@ -66,6 +66,7 @@
  "Light": "Chiaro",
  "Links to the titles by Watchmode.": "Link ai titoli a cura di Watchmode.",
  "Live TV": "TV in diretta",
+ "MEMORY": "MEMORIA",
  "Measuring Free My TV…": "Misuro Free My TV…",
  "Measuring the original home screen…": "Misuro la Home originale…",
  "Mostly Clear": "Poco nuvoloso",
@@ -120,6 +121,7 @@
  "Removed from Continue Watching: {title}": "Rimosso da Continua a guardare: {title}",
  "Removed from the shelf: {app}": "Rimossa dalle app preferite: {app}",
  "Restoring the original home screen…": "Ripristino la Home originale…",
+ "STORAGE": "SPAZIO",
  "Screensaver": "Salvaschermo",
  "Screensaver background": "Sfondo del salvaschermo",
  "Screensaver, preview": "Salvaschermo, anteprima",
@@ -237,7 +239,8 @@
  "{n} on": "{n} attive",
  "{n} sec": "{n} s",
  "{row} · {kind}": "{row} · {kind}",
- "“{row}” is hidden. Home Settings › Content shows it again.": "\"{row}\" è nascosta. Impostazioni Home › Contenuti la mostra di nuovo.",
+ "{used} of {total}": "{used} su {total}",
+ "“{row}” is hidden. Settings › Content shows it again.": "\"{row}\" è nascosta. Impostazioni › Contenuti la mostra di nuovo.",
  "← → to move · OK to drop · Back to cancel": "← → sposta · OK rilascia · Indietro annulla",
  "↑ ↓ to move · OK to drop · Back to cancel": "↑ ↓ sposta · OK rilascia · Indietro annulla"
 }

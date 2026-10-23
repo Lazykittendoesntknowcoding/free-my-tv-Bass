@@ -66,6 +66,7 @@
  "Light": "Ljust",
  "Links to the titles by Watchmode.": "Länkar till titlarna från Watchmode.",
  "Live TV": "Live-tv",
+ "MEMORY": "MINNE",
  "Measuring Free My TV…": "Mäter Free My TV…",
  "Measuring the original home screen…": "Mäter den ursprungliga hemskärmen…",
  "Mostly Clear": "Mestadels klart",
@@ -120,6 +121,7 @@
  "Removed from Continue Watching: {title}": "Borttaget från Fortsätt titta: {title}",
  "Removed from the shelf: {app}": "Borttagen från favoritappar: {app}",
  "Restoring the original home screen…": "Återställer den ursprungliga hemskärmen…",
+ "STORAGE": "LAGRING",
  "Screensaver": "Skärmsläckare",
  "Screensaver background": "Skärmsläckarens bakgrund",
  "Screensaver, preview": "Skärmsläckare, förhandsvisning",
@@ -237,7 +239,8 @@
  "{n} on": "{n} på",
  "{n} sec": "{n} s",
  "{row} · {kind}": "{row} · {kind}",
- "“{row}” is hidden. Home Settings › Content shows it again.": "”{row}” är dold. Hemskärm › Innehåll visar den igen.",
+ "{used} of {total}": "{used} av {total}",
+ "“{row}” is hidden. Settings › Content shows it again.": "”{row}” är dold. Inställningar › Innehåll visar den igen.",
  "← → to move · OK to drop · Back to cancel": "← → flytta · OK släpp · Tillbaka avbryt",
  "↑ ↓ to move · OK to drop · Back to cancel": "↑ ↓ flytta · OK släpp · Tillbaka avbryt"
 }

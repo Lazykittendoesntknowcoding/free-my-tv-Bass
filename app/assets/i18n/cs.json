@@ -66,6 +66,7 @@
  "Light": "Světlý",
  "Links to the titles by Watchmode.": "Odkazy na tituly: Watchmode.",
  "Live TV": "Živé vysílání",
+ "MEMORY": "PAMĚŤ",
  "Measuring Free My TV…": "Měření Free My TV…",
  "Measuring the original home screen…": "Měření původní plochy…",
  "Mostly Clear": "Převážně jasno",
@@ -120,6 +121,7 @@
  "Removed from Continue Watching: {title}": "Odebráno z Pokračovat ve sledování: {title}",
  "Removed from the shelf: {app}": "Odebráno z oblíbených aplikací: {app}",
  "Restoring the original home screen…": "Obnovování původní plochy…",
+ "STORAGE": "ÚLOŽIŠTĚ",
  "Screensaver": "Spořič obrazovky",
  "Screensaver background": "Pozadí spořiče obrazovky",
  "Screensaver, preview": "Spořič obrazovky, náhled",
@@ -237,7 +239,8 @@
  "{n} on": "Zapnuto: {n}",
  "{n} sec": "{n} s",
  "{row} · {kind}": "{row} · {kind}",
- "“{row}” is hidden. Home Settings › Content shows it again.": "„{row}“ je skrytá. Nastavení plochy › Obsah ji vrátí.",
+ "{used} of {total}": "{used} z {total}",
+ "“{row}” is hidden. Settings › Content shows it again.": "„{row}“ je skrytá. Nastavení › Obsah ji vrátí.",
  "← → to move · OK to drop · Back to cancel": "← → přesunout · OK umístit · Zpět zrušit",
  "↑ ↓ to move · OK to drop · Back to cancel": "↑ ↓ přesunout · OK umístit · Zpět zrušit"
 }

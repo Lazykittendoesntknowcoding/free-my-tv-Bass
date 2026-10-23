@@ -66,6 +66,7 @@
  "Light": "Terang",
  "Links to the titles by Watchmode.": "Tautan judul dari Watchmode.",
  "Live TV": "TV Langsung",
+ "MEMORY": "MEMORI",
  "Measuring Free My TV…": "Mengukur Free My TV…",
  "Measuring the original home screen…": "Mengukur layar utama asli…",
  "Mostly Clear": "Umumnya Cerah",
@@ -120,6 +121,7 @@
  "Removed from Continue Watching: {title}": "Dihapus dari Lanjutkan Menonton: {title}",
  "Removed from the shelf: {app}": "Dihapus dari Aplikasi Favorit: {app}",
  "Restoring the original home screen…": "Memulihkan layar utama asli…",
+ "STORAGE": "PENYIMPANAN",
  "Screensaver": "Screensaver",
  "Screensaver background": "Latar screensaver",
  "Screensaver, preview": "Screensaver, pratinjau",
@@ -237,7 +239,8 @@
  "{n} on": "{n} aktif",
  "{n} sec": "{n} dtk",
  "{row} · {kind}": "{row} · {kind}",
- "“{row}” is hidden. Home Settings › Content shows it again.": "\"{row}\" disembunyikan. Setelan Layar Utama › Konten menampilkannya lagi.",
+ "{used} of {total}": "{used} dari {total}",
+ "“{row}” is hidden. Settings › Content shows it again.": "\"{row}\" disembunyikan. Setelan › Konten menampilkannya lagi.",
  "← → to move · OK to drop · Back to cancel": "← → pindahkan · OK letakkan · Kembali batalkan",
  "↑ ↓ to move · OK to drop · Back to cancel": "↑ ↓ pindahkan · OK letakkan · Kembali batalkan"
 }

@@ -144,6 +144,9 @@ public class SettingsActivity extends Activity {
         // The left column's note, the picks' status and the TMDB credit, wrapped (rebuilt only when they change).
         private StaticLayout noteLayout, statusLayout, creditLayout;
         private String noteShown, statusShown, creditShown;
+        // RAM and storage: used and total bytes (read with the state, every 2 s), for the two gauges on the left.
+        private long ramUsed, ramTotal, diskUsed, diskTotal;
+        private String ramText = "", diskText = "";
         private final Handler handler = new Handler(Looper.getMainLooper());
         private final Spring[] pop = new Spring[12];
         private final List<String> appPkgs = new ArrayList<>(), appLabels = new ArrayList<>();
@@ -179,6 +182,7 @@ public class SettingsActivity extends Activity {
                 checkNight();
                 hasKey = Recs.hasKey(getContext());
                 recs = Recs.status(getContext());
+                readUsage();
                 boolean nowBusy = !busyText().isEmpty();
                 if (nowBusy) pendingAt = 0;
                 // A switch just ended: TalkBack reads how it went (the newest notice).
@@ -557,6 +561,62 @@ public class SettingsActivity extends Activity {
             float y = drawComparison(c, (CARD_TOP + 64) * k);
             y = drawRecs(c, y + 62 * k);
             drawNotices(c, y + 58 * k);
+            float gw = (LEFT_R - LEFT_X - 40) / 2f * k, top = (MAIN_TOP + MAIN_ROWS * (ROW_H + MAIN_GAP) + 40) * k;
+            drawGauge(c, LEFT_X * k, top, gw, Ui.tr("MEMORY"), ramUsed, ramTotal, ramText);
+            drawGauge(c, LEFT_X * k + gw + 40 * k, top, gw, Ui.tr("STORAGE"), diskUsed, diskTotal, diskText);
+        }
+
+        private void readUsage() {
+            android.app.ActivityManager am = (android.app.ActivityManager) getContext().getSystemService(Context.ACTIVITY_SERVICE);
+            if (am != null) {
+                android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo();
+                am.getMemoryInfo(mi);
+                ramTotal = mi.totalMem;
+                ramUsed = mi.totalMem - mi.availMem;
+            }
+            try {
+                android.os.StatFs fs = new android.os.StatFs(android.os.Environment.getDataDirectory().getPath());
+                diskTotal = fs.getTotalBytes();
+                diskUsed = diskTotal - fs.getAvailableBytes();
+            } catch (IllegalArgumentException e) {
+                diskTotal = 0;
+            }
+            ramText = usedOf(ramUsed, ramTotal);
+            diskText = usedOf(diskUsed, diskTotal);
+        }
+
+        private static String usedOf(long used, long total) {
+            if (total <= 0) return "";
+            return Ui.trf("{used} of {total}", "used", size(used), "total", size(total));
+        }
+
+        private static String size(long bytes) {
+            double gb = bytes / (1024.0 * 1024 * 1024);
+            if (gb < 1) return Ui.trf("{n} MB", "n", bytes / (1024 * 1024));
+            return Ui.trf("{n} GB", "n", String.format(Ui.locale(), gb < 10 ? "%.1f" : "%.0f", gb));
+        }
+
+        /** A gauge like a phone's battery, as a pill: the name and the percentage, the bar filled to it, and how much. */
+        private void drawGauge(Canvas c, float x, float top, float width, String name, long used, long total, String detail) {
+            float share = total > 0 ? Ui.clamp((float) used / total) : 0;
+            c.drawText(name, x, top + 22 * k, header);
+            cellValue.setColor(cellLabel.getColor());
+            c.drawText(total > 0 ? Math.round(share * 100) + "%" : "—", x + width, top + 22 * k, cellValue);
+            float nub = 6 * k, bh = 24 * k, by = top + 40 * k;
+            card.set(x, by, x + width - nub - 4 * k, by + bh);
+            fill.setColor(tone(0x1F000000, 0x33FFFFFF));
+            c.drawRoundRect(card, bh / 2, bh / 2, fill);
+            // The battery's tip, at the right end.
+            tmp.set(card.right + 3 * k, by + bh * 0.3f, card.right + 3 * k + nub, by + bh * 0.7f);
+            c.drawRoundRect(tmp, nub / 2, nub / 2, fill);
+            if (share > 0) {
+                float inset = 3 * k;
+                tmp.set(card.left + inset, card.top + inset, card.left + inset + Math.max(bh - 2 * inset, (card.width() - 2 * inset) * share),
+                        card.bottom - inset);
+                fill.setColor(share >= 0.9f ? 0xFFFF3B30 : share >= 0.75f ? 0xFFFF9F0A : 0xFF34C759);
+                c.drawRoundRect(tmp, tmp.height() / 2, tmp.height() / 2, fill);
+            }
+            if (!detail.isEmpty()) c.drawText(detail, x, by + bh + 36 * k, notice);
         }
 
         /** Home screen picks: status, and the credit TMDB asks for. */

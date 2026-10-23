@@ -2716,14 +2716,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         afterRowChange();
     }
 
-    /** Hides the current row on this tab; the next one takes its place (Home Settings › Content shows it again). */
+    /** Hides the current row on this tab; the next one takes its place (Settings › Content shows it again). */
     private void hideRow() {
         TitleRow row = pickRows.get(rowIndex);
         rowMenu = false;
         rowMenuOpen.target = 0;
         Recs.hideRow(rowsTab(), Recs.rowId(row.kind, row.theme));
         click.open();
-        showToast(Ui.trf("“{row}” is hidden. Home Settings › Content shows it again.", "row", row.title));
+        showToast(Ui.trf("“{row}” is hidden. Settings › Content shows it again.", "row", row.title));
         afterRowChange();
     }
 

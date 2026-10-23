@@ -66,6 +66,7 @@
  "Light": "Lyst",
  "Links to the titles by Watchmode.": "Lenker til titlene fra Watchmode.",
  "Live TV": "Direkte-TV",
+ "MEMORY": "MINNE",
  "Measuring Free My TV…": "Måler Free My TV…",
  "Measuring the original home screen…": "Måler den opprinnelige startskjermen…",
  "Mostly Clear": "Stort sett klart",
@@ -120,6 +121,7 @@
  "Removed from Continue Watching: {title}": "Fjernet fra Fortsett å se: {title}",
  "Removed from the shelf: {app}": "Fjernet fra favorittapper: {app}",
  "Restoring the original home screen…": "Gjenoppretter den opprinnelige startskjermen…",
+ "STORAGE": "LAGRING",
  "Screensaver": "Skjermsparer",
  "Screensaver background": "Bakgrunn for skjermsparer",
  "Screensaver, preview": "Skjermsparer, forhåndsvisning",
@@ -237,7 +239,8 @@
  "{n} on": "{n} på",
  "{n} sec": "{n} sek",
  "{row} · {kind}": "{row} · {kind}",
- "“{row}” is hidden. Home Settings › Content shows it again.": "«{row}» er skjult. Startskjerm › Innhold viser den igjen.",
+ "{used} of {total}": "{used} av {total}",
+ "“{row}” is hidden. Settings › Content shows it again.": "«{row}» er skjult. Innstillinger › Innhold viser den igjen.",
  "← → to move · OK to drop · Back to cancel": "← → flytt · OK slipp · Tilbake avbryt",
  "↑ ↓ to move · OK to drop · Back to cancel": "↑ ↓ flytt · OK slipp · Tilbake avbryt"
 }

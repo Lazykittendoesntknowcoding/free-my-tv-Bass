@@ -268,9 +268,9 @@ final class Recs {
         return kind + ":" + theme;
     }
 
-    // MARK: - Which rows a tab shows (Home Settings › Content, and Move and Hide on the home screen)
+    // MARK: - Which rows a tab shows (Content, and Move and Hide on the home screen)
 
-    /** The groups Home Settings › Content lists the rows in. */
+    /** The groups Content lists the rows in. */
     static final String[] GROUPS = {"picks", "services", "genres", "more", "youtube"};
     /** Services with rows of their own: theme "s" + id (popular), + "n" (new), + "t" (top rated); TMDB's ids. */
     private static final String[][] ROW_SERVICES = {
@@ -367,14 +367,14 @@ final class Recs {
         else Prefs.hideRow(tab, id);
     }
 
-    /** Home Settings › Content: the ids of the rows the tab shows, in order. */
+    /** Content: the ids of the rows the tab shows, in order. */
     static List<String> rowsOn(String tab) {
         List<String> out = new ArrayList<>();
         for (RowDef d : defsOn(tab)) out.add(d.id());
         return out;
     }
 
-    /** Home Settings › Content: the ids of a group's rows. */
+    /** Content: the ids of a group's rows. */
     static List<String> rowChoices(String tab, String group) {
         List<String> out = new ArrayList<>();
         for (RowDef d : catalogue(tab)) if (d.group.equals(group)) out.add(d.id());
@@ -405,7 +405,7 @@ final class Recs {
         notifyListeners();
     }
 
-    /** Swaps two rows the tab shows (Home Settings › Content's ← →: with the row above or below in its list). */
+    /** Swaps two rows the tab shows (Content's ← →: with the row above or below in its list). */
     void swapRows(String tab, String id, String other) {
         List<String> ids = rowsOn(tab);
         int at = ids.indexOf(id), to = ids.indexOf(other);
@@ -415,7 +415,7 @@ final class Recs {
         notifyListeners();
     }
 
-    /** A row's name in Home Settings › Content: its heading, with Movies or Shows on Explore. */
+    /** A row's name in Content: its heading, with Movies or Shows on Explore. */
     String rowName(String tab, String id) {
         RowDef d = def(tab, id);
         if (d == null) return id;
@@ -447,7 +447,7 @@ final class Recs {
     }
 
     /**
-     * A tab's rows (movies "movie", shows "tv", both null): the ones Home Settings › Content has on, in their order.
+     * A tab's rows (movies "movie", shows "tv", both null): the ones Content has on, in their order.
      * Standard: Trending now, Popular, New releases, Top rated, Kids, then (movies or shows) one row per genre; Explore
      * has each of the first ones twice, a movies row then a shows row, with Trending now · YouTube after Trending.
      */
@@ -548,7 +548,7 @@ final class Recs {
 
     private static final int SHORT_ROW = 12;
 
-    /** Rows the first list doesn't fetch (added in Home Settings › Content): their first page comes with more(). */
+    /** Rows the first list doesn't fetch (added in Content): their first page comes with more(). */
     private static boolean listed(String kind, String theme) {
         if (theme.equals(HOT) || theme.equals(POPULAR) || theme.equals(NEW) || theme.equals(TOP) || theme.equals(KIDS)) return true;
         if (!theme.startsWith("g")) return false;

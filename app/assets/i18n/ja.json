@@ -66,6 +66,7 @@
  "Light": "ライト",
  "Links to the titles by Watchmode.": "作品へのリンク：Watchmode",
  "Live TV": "テレビ放送",
+ "MEMORY": "メモリ",
  "Measuring Free My TV…": "Free My TVを測定中…",
  "Measuring the original home screen…": "元のホーム画面を測定中…",
  "Mostly Clear": "おおむね晴れ",
@@ -120,6 +121,7 @@
  "Removed from Continue Watching: {title}": "視聴を続けるから削除しました: {title}",
  "Removed from the shelf: {app}": "お気に入りアプリから外しました: {app}",
  "Restoring the original home screen…": "元のホーム画面に戻しています…",
+ "STORAGE": "ストレージ",
  "Screensaver": "スクリーンセーバー",
  "Screensaver background": "スクリーンセーバーの背景",
  "Screensaver, preview": "スクリーンセーバー、プレビュー",
@@ -237,7 +239,8 @@
  "{n} on": "{n}件オン",
  "{n} sec": "{n}秒",
  "{row} · {kind}": "{row} · {kind}",
- "“{row}” is hidden. Home Settings › Content shows it again.": "「{row}」を非表示にしました。ホームの設定 › コンテンツで元に戻せます。",
+ "{used} of {total}": "{used} / {total}",
+ "“{row}” is hidden. Settings › Content shows it again.": "「{row}」を非表示にしました。設定 › コンテンツで元に戻せます。",
  "← → to move · OK to drop · Back to cancel": "← → 移動 · OK 配置 · 戻る キャンセル",
  "↑ ↓ to move · OK to drop · Back to cancel": "↑ ↓ 移動 · OK 配置 · 戻る キャンセル"
 }

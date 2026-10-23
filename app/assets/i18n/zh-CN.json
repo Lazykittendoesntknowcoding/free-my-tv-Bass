@@ -66,6 +66,7 @@
  "Light": "浅色",
  "Links to the titles by Watchmode.": "影片链接由 Watchmode 提供。",
  "Live TV": "电视直播",
+ "MEMORY": "内存",
  "Measuring Free My TV…": "正在测量 Free My TV…",
  "Measuring the original home screen…": "正在测量原来的主屏幕…",
  "Mostly Clear": "大部晴朗",
@@ -120,6 +121,7 @@
  "Removed from Continue Watching: {title}": "已从继续观看中移除：{title}",
  "Removed from the shelf: {app}": "已从收藏栏移除：{app}",
  "Restoring the original home screen…": "正在恢复原来的主屏幕…",
+ "STORAGE": "存储空间",
  "Screensaver": "屏保",
  "Screensaver background": "屏保背景",
  "Screensaver, preview": "屏保，预览",
@@ -237,7 +239,8 @@
  "{n} on": "已开 {n} 个",
  "{n} sec": "{n} 秒",
  "{row} · {kind}": "{row} · {kind}",
- "“{row}” is hidden. Home Settings › Content shows it again.": "已隐藏“{row}”。可在 主屏幕设置 › 内容 中恢复。",
+ "{used} of {total}": "{used} / {total}",
+ "“{row}” is hidden. Settings › Content shows it again.": "已隐藏“{row}”。可在 设置 › 内容 中恢复。",
  "← → to move · OK to drop · Back to cancel": "← → 移动 · OK 放置 · 返回 取消",
  "↑ ↓ to move · OK to drop · Back to cancel": "↑ ↓ 移动 · OK 放置 · 返回 取消"
 }

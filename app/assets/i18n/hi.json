@@ -66,6 +66,7 @@
  "Light": "लाइट",
  "Links to the titles by Watchmode.": "टाइटल के लिंक: Watchmode.",
  "Live TV": "लाइव TV",
+ "MEMORY": "मेमोरी",
  "Measuring Free My TV…": "Free My TV को मापा जा रहा है…",
  "Measuring the original home screen…": "मूल होम स्क्रीन को मापा जा रहा है…",
  "Mostly Clear": "ज़्यादातर साफ़",
@@ -120,6 +121,7 @@
  "Removed from Continue Watching: {title}": "देखना जारी रखें से हटाया गया: {title}",
  "Removed from the shelf: {app}": "पसंदीदा ऐप से हटाया गया: {app}",
  "Restoring the original home screen…": "मूल होम स्क्रीन वापस लाई जा रही है…",
+ "STORAGE": "स्टोरेज",
  "Screensaver": "स्क्रीनसेवर",
  "Screensaver background": "स्क्रीनसेवर पृष्ठभूमि",
  "Screensaver, preview": "स्क्रीनसेवर, झलक",
@@ -237,7 +239,8 @@
  "{n} on": "{n} चालू",
  "{n} sec": "{n} सेकंड",
  "{row} · {kind}": "{row} · {kind}",
- "“{row}” is hidden. Home Settings › Content shows it again.": "\"{row}\" छिपा दी गई। होम सेटिंग › सामग्री से फिर दिखाएँ।",
+ "{used} of {total}": "{total} में से {used}",
+ "“{row}” is hidden. Settings › Content shows it again.": "\"{row}\" छिपा दी गई। सेटिंग › सामग्री से फिर दिखाएँ।",
  "← → to move · OK to drop · Back to cancel": "← → खिसकाएँ · OK छोड़ें · वापस रद्द करें",
  "↑ ↓ to move · OK to drop · Back to cancel": "↑ ↓ खिसकाएँ · OK छोड़ें · वापस रद्द करें"
 }

@@ -66,6 +66,7 @@
  "Light": "Clair",
  "Links to the titles by Watchmode.": "Liens vers les titres par Watchmode.",
  "Live TV": "TV en direct",
+ "MEMORY": "MÉMOIRE",
  "Measuring Free My TV…": "Mesure de Free My TV…",
  "Measuring the original home screen…": "Mesure de l'écran d'accueil d'origine…",
  "Mostly Clear": "Plutôt dégagé",
@@ -120,6 +121,7 @@
  "Removed from Continue Watching: {title}": "Retiré de Reprendre : {title}",
  "Removed from the shelf: {app}": "Retirée des apps favorites : {app}",
  "Restoring the original home screen…": "Restauration de l'écran d'accueil d'origine…",
+ "STORAGE": "STOCKAGE",
  "Screensaver": "Économiseur d'écran",
  "Screensaver background": "Fond de l'économiseur d'écran",
  "Screensaver, preview": "Économiseur d'écran, aperçu",
@@ -237,7 +239,8 @@
  "{n} on": "{n} activées",
  "{n} sec": "{n} s",
  "{row} · {kind}": "{row} · {kind}",
- "“{row}” is hidden. Home Settings › Content shows it again.": "« {row} » est masquée. Réglages de l’accueil › Contenu l’affiche à nouveau.",
+ "{used} of {total}": "{used} sur {total}",
+ "“{row}” is hidden. Settings › Content shows it again.": "« {row} » est masquée. Réglages › Contenu l’affiche à nouveau.",
  "← → to move · OK to drop · Back to cancel": "← → déplacer · OK déposer · Retour annuler",
  "↑ ↓ to move · OK to drop · Back to cancel": "↑ ↓ déplacer · OK déposer · Retour annuler"
 }

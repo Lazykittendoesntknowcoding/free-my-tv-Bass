@@ -66,6 +66,7 @@
  "Light": "Claro",
  "Links to the titles by Watchmode.": "Links dos títulos por Watchmode.",
  "Live TV": "TV ao Vivo",
+ "MEMORY": "MEMÓRIA",
  "Measuring Free My TV…": "Medindo o Free My TV…",
  "Measuring the original home screen…": "Medindo o Início original…",
  "Mostly Clear": "Poucas nuvens",
@@ -120,6 +121,7 @@
  "Removed from Continue Watching: {title}": "Removido de Continuar assistindo: {title}",
  "Removed from the shelf: {app}": "Removido da prateleira: {app}",
  "Restoring the original home screen…": "Devolvendo o Início original…",
+ "STORAGE": "ARMAZENAMENTO",
  "Screensaver": "Tela de Descanso",
  "Screensaver background": "Fundo do protetor de tela",
  "Screensaver, preview": "Tela de Descanso, ver agora",
@@ -237,7 +239,8 @@
  "{n} on": "{n} ligadas",
  "{n} sec": "{n} s",
  "{row} · {kind}": "{row} · {kind}",
- "“{row}” is hidden. Home Settings › Content shows it again.": "“{row}” foi ocultada. Ajustes do Início › Conteúdo mostra de novo.",
+ "{used} of {total}": "{used} de {total}",
+ "“{row}” is hidden. Settings › Content shows it again.": "“{row}” foi ocultada. Ajustes › Conteúdo mostra de novo.",
  "← → to move · OK to drop · Back to cancel": "← → para mover · OK para soltar · Voltar para cancelar",
  "↑ ↓ to move · OK to drop · Back to cancel": "↑ ↓ para mover · OK para soltar · Voltar para cancelar"
 }

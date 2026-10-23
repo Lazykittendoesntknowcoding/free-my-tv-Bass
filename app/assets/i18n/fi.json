@@ -66,6 +66,7 @@
  "Light": "Vaalea",
  "Links to the titles by Watchmode.": "Linkit nimikkeisiin: Watchmode.",
  "Live TV": "Suora TV",
+ "MEMORY": "MUISTI",
  "Measuring Free My TV…": "Mitataan Free My TV:tä…",
  "Measuring the original home screen…": "Mitataan alkuperäistä aloitusnäyttöä…",
  "Mostly Clear": "Enimmäkseen selkeää",
@@ -120,6 +121,7 @@
  "Removed from Continue Watching: {title}": "Poistettu Jatka katsomista -rivistä: {title}",
  "Removed from the shelf: {app}": "Poistettu suosikkisovelluksista: {app}",
  "Restoring the original home screen…": "Palautetaan alkuperäinen aloitusnäyttö…",
+ "STORAGE": "TALLENNUSTILA",
  "Screensaver": "Näytönsäästäjä",
  "Screensaver background": "Näytönsäästäjän tausta",
  "Screensaver, preview": "Näytönsäästäjä, esikatselu",
@@ -237,7 +239,8 @@
  "{n} on": "{n} päällä",
  "{n} sec": "{n} s",
  "{row} · {kind}": "{row} · {kind}",
- "“{row}” is hidden. Home Settings › Content shows it again.": "”{row}” on piilotettu. Aloitusnäyttö › Sisältö näyttää sen taas.",
+ "{used} of {total}": "{used}/{total}",
+ "“{row}” is hidden. Settings › Content shows it again.": "”{row}” on piilotettu. Asetukset › Sisältö näyttää sen taas.",
  "← → to move · OK to drop · Back to cancel": "← → siirrä · OK pudota · Takaisin peruuta",
  "↑ ↓ to move · OK to drop · Back to cancel": "↑ ↓ siirrä · OK pudota · Takaisin peruuta"
 }

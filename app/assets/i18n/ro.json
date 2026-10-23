@@ -66,6 +66,7 @@
  "Light": "Luminos",
  "Links to the titles by Watchmode.": "Linkuri către titluri de la Watchmode.",
  "Live TV": "TV live",
+ "MEMORY": "MEMORIE",
  "Measuring Free My TV…": "Se măsoară Free My TV…",
  "Measuring the original home screen…": "Se măsoară ecranul de pornire original…",
  "Mostly Clear": "Predominant senin",
@@ -120,6 +121,7 @@
  "Removed from Continue Watching: {title}": "Eliminat din Continuă vizionarea: {title}",
  "Removed from the shelf: {app}": "Scoasă din aplicațiile favorite: {app}",
  "Restoring the original home screen…": "Se restabilește ecranul de pornire original…",
+ "STORAGE": "STOCARE",
  "Screensaver": "Screensaver",
  "Screensaver background": "Fundalul screensaverului",
  "Screensaver, preview": "Screensaver, previzualizare",
@@ -237,7 +239,8 @@
  "{n} on": "{n} pornite",
  "{n} sec": "{n} s",
  "{row} · {kind}": "{row} · {kind}",
- "“{row}” is hidden. Home Settings › Content shows it again.": "„{row}” e ascuns. Ecran principal › Conținut îl arată din nou.",
+ "{used} of {total}": "{used} din {total}",
+ "“{row}” is hidden. Settings › Content shows it again.": "„{row}” e ascuns. Setări › Conținut îl arată din nou.",
  "← → to move · OK to drop · Back to cancel": "← → mută · OK plasează · Înapoi anulează",
  "↑ ↓ to move · OK to drop · Back to cancel": "↑ ↓ mută · OK plasează · Înapoi anulează"
 }

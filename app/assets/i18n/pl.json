@@ -66,6 +66,7 @@
  "Light": "Jasny",
  "Links to the titles by Watchmode.": "Linki do tytułów z Watchmode.",
  "Live TV": "Telewizja",
+ "MEMORY": "PAMIĘĆ",
  "Measuring Free My TV…": "Mierzę Free My TV…",
  "Measuring the original home screen…": "Mierzę fabryczny ekran główny…",
  "Mostly Clear": "Przeważnie bezchmurnie",
@@ -120,6 +121,7 @@
  "Removed from Continue Watching: {title}": "Usunięto z Oglądaj dalej: {title}",
  "Removed from the shelf: {app}": "Usunięto z ulubionych aplikacji: {app}",
  "Restoring the original home screen…": "Przywracam fabryczny ekran główny…",
+ "STORAGE": "MIEJSCE",
  "Screensaver": "Wygaszacz",
  "Screensaver background": "Tło wygaszacza ekranu",
  "Screensaver, preview": "Wygaszacz, podgląd",
@@ -237,7 +239,8 @@
  "{n} on": "Włączone: {n}",
  "{n} sec": "{n} s",
  "{row} · {kind}": "{row} · {kind}",
- "“{row}” is hidden. Home Settings › Content shows it again.": "Rząd „{row}” jest ukryty. Ustawienia ekranu › Treści pokażą go znowu.",
+ "{used} of {total}": "{used} z {total}",
+ "“{row}” is hidden. Settings › Content shows it again.": "Rząd „{row}” jest ukryty. Ustawienia › Treści pokażą go znowu.",
  "← → to move · OK to drop · Back to cancel": "← → przesuwa · OK upuszcza · Wstecz anuluje",
  "↑ ↓ to move · OK to drop · Back to cancel": "↑ ↓ przesuwa · OK upuszcza · Wstecz anuluje"
 }
