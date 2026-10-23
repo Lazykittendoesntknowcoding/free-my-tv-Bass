@@ -225,6 +225,10 @@ public class WatchListener extends NotificationListenerService implements MediaS
         String artKey = key + "|" + title;
         if (artKey.equals(t.artFor)) return;
         t.artFor = artKey;
+        if (WatchHistory.needsVideoId(e) && YouTubeFeed.on()) {
+            final String name = e.title, channel = e.subtitle;
+            io.execute(() -> findYouTubeVideo(app, key, linkFor, name, channel));
+        }
         if (WatchHistory.isStremio(pkg)) {
             final String name = e.title, episode = e.subtitle, id = e.mediaId + " " + e.mediaUri;
             io.execute(() -> findStremioLink(app, key, linkFor, name, episode, id));
@@ -261,6 +265,20 @@ public class WatchListener extends NotificationListenerService implements MediaS
             if (!tmp.renameTo(f)) AppLog.w("continue watching: artwork not saved");
         } catch (Exception e) {
             AppLog.w("continue watching artwork: " + e.getMessage());
+        }
+    }
+
+    /** Finds the YouTube video's ID (YouTubeFeed.findVideo), once per video, and keeps its link with the entry. */
+    private static void findYouTubeVideo(Context c, String key, String linkFor, String title, String channel) {
+        WatchHistory.Entry known = WatchHistory.find(c, key);
+        if (known != null && known.linkFor.equals(linkFor) && known.link.startsWith(WatchHistory.YOUTUBE_WATCH)) return;
+        try {
+            String id = YouTubeFeed.findVideo(title, channel);
+            if (id == null) return;
+            WatchHistory.setLink(c, key, linkFor, WatchHistory.YOUTUBE_WATCH + id);
+            AppLog.w("continue watching: " + title + " on YouTube is video " + id);
+        } catch (Exception e) {
+            AppLog.w("continue watching: no YouTube video for " + title + ": " + e.getMessage());
         }
     }
 
