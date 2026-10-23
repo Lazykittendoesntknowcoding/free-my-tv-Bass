@@ -64,7 +64,7 @@ public class WatchListener extends NotificationListenerService implements MediaS
     /** One app's session: its last metadata and how long it has played without stopping. */
     private final class Tracked extends MediaController.Callback {
         final MediaController controller;
-        long playingSince = -1, playedMs, savedAt;
+        long playingSince = -1, playedMs, savedAt, savedPosition = -1;
         String key, artFor;
 
         Tracked(MediaController controller) {
@@ -185,12 +185,14 @@ public class WatchListener extends NotificationListenerService implements MediaS
         String key = WatchHistory.key(pkg, show.isEmpty() ? title : show);
         boolean known = key.equals(t.key);
         if (played < JOIN_AFTER_MS && !known) return;
-        if (!isPlaying && known && now - t.savedAt < 2_000) return;
-        t.key = key;
-        t.savedAt = now;
         PlaybackState state = mc.getPlaybackState();
         long duration = md.getLong(MediaMetadata.METADATA_KEY_DURATION);
         long position = position(state);
+        // Paused: nothing new to keep (and every write makes the home screen read the list again).
+        if (!isPlaying && known && (now - t.savedAt < 2_000 || position == t.savedPosition)) return;
+        t.key = key;
+        t.savedAt = now;
+        t.savedPosition = position;
         boolean finished = duration > 0 && position >= duration * WatchHistory.FINISHED;
         final WatchHistory.Entry e = new WatchHistory.Entry();
         e.key = key;
