@@ -13,7 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Explore's "Trending now · YouTube" row: YouTube's most popular videos in the TV's country (YouTube Data API, with the
+ * The YouTube rows ("Trending now · YouTube", and by category): YouTube's most popular videos in the TV's country (YouTube Data API, with the
  * person's own free key, config.properties "youtube_key"; the key never goes to the log). Each video is a Pick of kind
  * "youtube" that plays in the YouTube app.
  */
@@ -28,12 +28,16 @@ final class YouTubeFeed {
         return !Config.YOUTUBE_KEY.trim().isEmpty();
     }
 
-    /** One page of 25 (blocks: call it off the UI thread); next[0] receives the next page's token, or null. */
-    static List<Recs.Pick> page(String region, String language, String token, String[] next) throws IOException {
+    /**
+     * One page of 25 of the chart (all videos, or YouTube's category id: "10" music…; blocks: call it off the UI
+     * thread); next[0] receives the next page's token, or null.
+     */
+    static List<Recs.Pick> page(String region, String language, String category, String token, String[] next) throws IOException {
         String url;
         try {
             url = API + "?part=snippet&chart=mostPopular&maxResults=25&regionCode=" + URLEncoder.encode(region, "UTF-8")
                     + "&hl=" + URLEncoder.encode(language, "UTF-8")
+                    + (category == null ? "" : "&videoCategoryId=" + URLEncoder.encode(category, "UTF-8"))
                     + (token == null ? "" : "&pageToken=" + URLEncoder.encode(token, "UTF-8"))
                     + "&key=" + URLEncoder.encode(Config.YOUTUBE_KEY.trim(), "UTF-8");
         } catch (java.io.UnsupportedEncodingException e) {
@@ -44,6 +48,8 @@ final class YouTubeFeed {
         c.setReadTimeout(10000);
         try {
             int code = c.getResponseCode();
+            // A category without a chart in the country answers 404 (or 400): just no row.
+            if (category != null && (code == 400 || code == 404)) throw new IOException("no chart for category " + category + " (HTTP " + code + ")");
             if (code == 400 || code == 403) throw new IOException("YouTube refused the key (HTTP " + code + ")");
             if (code != 200) throw new IOException("YouTube returned HTTP " + code);
             JSONObject o = new JSONObject(read(c.getInputStream()));

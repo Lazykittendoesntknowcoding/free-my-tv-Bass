@@ -259,42 +259,238 @@ final class Recs {
         String theme, title;
         String kind;    // "movie" or "tv", or null for movies and shows together (what more() takes)
         final List<Pick> picks = new ArrayList<>();
+
+        /** What Prefs keeps a moved or hidden row by: its kind and theme ("movie:popular", "tv:g16"). */
+        String id() { return rowId(kind, theme); }
+    }
+
+    static String rowId(String kind, String theme) {
+        return kind + ":" + theme;
+    }
+
+    // MARK: - Which rows a tab shows (Home Settings › Content, and Move and Hide on the home screen)
+
+    /** The groups Home Settings › Content lists the rows in. */
+    static final String[] GROUPS = {"picks", "services", "genres", "more", "youtube"};
+    /** Services with rows of their own: theme "s" + id (popular), + "n" (new), + "t" (top rated); TMDB's ids. */
+    private static final String[][] ROW_SERVICES = {
+        {"8", "8|1796", "Netflix"},          // 1796: Netflix with ads
+        {"9", "9|119", "Prime Video"},       // TMDB lists Prime Video under both
+        {"350", "350", "Apple TV"},
+        {"337", "337", "Disney+"},
+        {"39", "39", "NOW"},
+        {"531", "531", "Paramount+"},
+    };
+    /** Every TMDB genre (Kids is KIDS); the ones not in MOVIE_GENRES or TV_GENRES are rows to add. */
+    private static final int[] ALL_MOVIE_GENRES = {28, 12, 16, 35, 80, 99, 18, 10751, 14, 36, 27, 10402, 9648, 10749, 878, 10770, 53, 10752, 37};
+    private static final int[] ALL_TV_GENRES = {10759, 16, 35, 80, 99, 18, 10751, 9648, 10763, 10764, 10765, 10766, 10767, 10768, 37};
+    static final String GEMS = "gems", CLASSICS = "classics";
+    private static final int[] DECADES = {1970, 1980, 1990, 2000, 2010};
+    /** YouTube's trending charts by category ("y" + YouTube's category id). */
+    private static final String[] YOUTUBE_CATEGORIES = {"y10", "y20", "y17", "y1"};   // music, gaming, sport, film
+    /** A row a tab can show: on unless hidden (`standard`, the rows a tab always had), or off until added. */
+    private static final class RowDef {
+        final String kind, theme, group;
+        final boolean standard;
+
+        RowDef(String kind, String theme, String group, boolean standard) {
+            this.kind = kind;
+            this.theme = theme;
+            this.group = group;
+            this.standard = standard;
+        }
+
+        String id() { return rowId(kind, theme); }
+    }
+
+    private static final Map<String, List<RowDef>> CATALOGUES = new HashMap<>();
+
+    /** Every row the tab ("all", "movie", "tv") can show, the standard ones in their own order. */
+    private static synchronized List<RowDef> catalogue(String tab) {
+        List<RowDef> out = CATALOGUES.get(tab);
+        if (out != null) return out;
+        out = new ArrayList<>();
+        boolean explore = tab.equals("all");
+        String[] kinds = explore ? new String[] {"movie", "tv"} : new String[] {tab};
+        for (String theme : new String[] {HOT, POPULAR, NEW, TOP, KIDS}) {
+            for (String kd : kinds) out.add(new RowDef(kd, theme, "picks", true));
+            if (explore && theme.equals(HOT)) out.add(new RowDef(YouTubeFeed.KIND, HOT, "youtube", true));
+        }
+        if (!explore) for (int g : tab.equals("movie") ? MOVIE_GENRES : TV_GENRES) out.add(new RowDef(tab, "g" + g, "genres", true));
+        for (String[] s : ROW_SERVICES) {
+            for (String suffix : new String[] {"", "n", "t"}) for (String kd : kinds) out.add(new RowDef(kd, "s" + s[0] + suffix, "services", false));
+        }
+        for (String kd : kinds) {
+            int[] standard = kd.equals("movie") ? MOVIE_GENRES : TV_GENRES;
+            for (int g : kd.equals("movie") ? ALL_MOVIE_GENRES : ALL_TV_GENRES) {
+                if (Config.HIDE_ANIMATION && g == ANIMATION) continue;
+                boolean has = false;
+                for (int s : standard) has |= s == g;
+                if (explore || !has) out.add(new RowDef(kd, "g" + g, "genres", false));
+            }
+        }
+        List<String> more = new ArrayList<>(Arrays.asList(GEMS, CLASSICS));
+        for (int d : DECADES) more.add("d" + d);
+        for (String theme : more) for (String kd : kinds) out.add(new RowDef(kd, theme, "more", false));
+        if (!explore) out.add(new RowDef(YouTubeFeed.KIND, HOT, "youtube", false));
+        for (String y : YOUTUBE_CATEGORIES) out.add(new RowDef(YouTubeFeed.KIND, y, "youtube", false));
+        CATALOGUES.put(tab, out);
+        return out;
+    }
+
+    private static RowDef def(String tab, String id) {
+        for (RowDef d : catalogue(tab)) if (d.id().equals(id)) return d;
+        return null;
+    }
+
+    private static boolean on(RowDef d, Set<String> hidden, List<String> added) {
+        return d.standard ? !hidden.contains(d.id()) : added.contains(d.id());
+    }
+
+    /** The rows the tab shows, in their order: the standard ones, then the added ones as they came, then moved rows. */
+    private static List<RowDef> defsOn(String tab) {
+        Set<String> hidden = Prefs.hiddenRows(tab);
+        List<String> added = Prefs.addedRows(tab);
+        List<RowDef> out = new ArrayList<>();
+        for (RowDef d : catalogue(tab)) if (d.standard && on(d, hidden, added)) out.add(d);
+        for (String id : added) {
+            RowDef d = def(tab, id);
+            if (d != null && !d.standard) out.add(d);
+        }
+        return ordered(out, Prefs.rowOrder(tab), RowDef::id);
+    }
+
+    /** Hide on the home screen: the row leaves the tab ("all", "movie" or "tv"); an added one is just taken off. */
+    static void hideRow(String tab, String id) {
+        RowDef d = def(tab, id);
+        if (d != null && !d.standard) Prefs.setRowAdded(tab, id, false);
+        else Prefs.hideRow(tab, id);
+    }
+
+    /** Home Settings › Content: the ids of the rows the tab shows, in order. */
+    static List<String> rowsOn(String tab) {
+        List<String> out = new ArrayList<>();
+        for (RowDef d : defsOn(tab)) out.add(d.id());
+        return out;
+    }
+
+    /** Home Settings › Content: the ids of a group's rows. */
+    static List<String> rowChoices(String tab, String group) {
+        List<String> out = new ArrayList<>();
+        for (RowDef d : catalogue(tab)) if (d.group.equals(group)) out.add(d.id());
+        return out;
+    }
+
+    static boolean rowOn(String tab, String id) {
+        RowDef d = def(tab, id);
+        return d != null && on(d, Prefs.hiddenRows(tab), Prefs.addedRows(tab));
+    }
+
+    /** Ticks a row on or off; a row turned on goes at the end of the tab. */
+    void setRowOn(String tab, String id, boolean on) {
+        RowDef d = def(tab, id);
+        if (d == null) return;
+        if (d.standard && on) {
+            Prefs.unhideRow(tab, id);
+            List<String> order = Prefs.rowOrder(tab);
+            if (order.remove(id)) {   // a moved row comes back at the end too
+                order.add(id);
+                Prefs.setRowOrder(tab, order);
+            }
+        } else if (d.standard) {
+            Prefs.hideRow(tab, id);
+        } else {
+            Prefs.setRowAdded(tab, id, on);
+        }
+        notifyListeners();
+    }
+
+    /** Moves a row the tab shows one place earlier (-1) or later (1). */
+    void moveRow(String tab, String id, int dir) {
+        List<String> ids = rowsOn(tab);
+        int at = ids.indexOf(id), to = at + dir;
+        if (at < 0 || to < 0 || to >= ids.size()) return;
+        Collections.swap(ids, at, to);
+        Prefs.setRowOrder(tab, ids);
+        notifyListeners();
+    }
+
+    /** A row's name in Home Settings › Content: its heading, with Movies or Shows on Explore. */
+    String rowName(String tab, String id) {
+        RowDef d = def(tab, id);
+        if (d == null) return id;
+        String title = title(d, tab.equals("all"));
+        return title != null ? title : Ui.tr("Genre");
+    }
+
+    static String groupName(String group) {
+        switch (group) {
+            case "picks": return Ui.tr("Trending, popular, new");
+            case "services": return Ui.tr("Streaming services");
+            case "genres": return Ui.tr("Genres");
+            case "more": return Ui.tr("Gems, classics, decades");
+            default: return "YouTube";
+        }
+    }
+
+    /** The row's heading (null while its genre's name hasn't come). */
+    private String title(RowDef d, boolean explore) {
+        if (YouTubeFeed.KIND.equals(d.kind)) {
+            String name = d.theme.equals("y10") ? Ui.tr("youtube|Music") : d.theme.equals("y20") ? Ui.tr("youtube|Gaming")
+                    : d.theme.equals("y17") ? Ui.tr("youtube|Sport") : d.theme.equals("y1") ? Ui.tr("youtube|Film & animation")
+                    : Ui.tr("Trending now");
+            return Ui.trf("{row} · {kind}", "row", name, "kind", "YouTube");
+        }
+        String title = themeTitle(d.theme, d.kind);
+        if (title == null || !explore) return title;
+        return Ui.trf("{row} · {kind}", "row", title, "kind", d.kind.equals("movie") ? Ui.tr("Movies") : Ui.tr("Shows"));
     }
 
     /**
-     * A tab's rows (movies "movie", shows "tv", both null): Trending now, Popular, New releases, Top rated, then (movies
-     * or shows) one row per genre. Explore (null) has each of those, and Kids, twice: a movies row, then a shows row.
+     * A tab's rows (movies "movie", shows "tv", both null): the ones Home Settings › Content has on, in their order.
+     * Standard: Trending now, Popular, New releases, Top rated, Kids, then (movies or shows) one row per genre; Explore
+     * has each of the first ones twice, a movies row then a shows row, with Trending now · YouTube after Trending.
      */
     List<Row> rows(String kind) {
         List<Row> out = new ArrayList<>();
         if (!hasKey(context)) return out;
         Map<String, Boolean> have = new HashMap<>();
+        String tab = kind == null ? "all" : kind;
         List<Row> all = new ArrayList<>();
-        if (kind == null) {
-            for (String theme : new String[] {HOT, POPULAR, NEW, TOP, KIDS}) {
-                all.add(row("movie", theme, Ui.trf("{row} · {kind}", "row", themeTitle(theme, "movie"), "kind", Ui.tr("Movies"))));
-                all.add(row("tv", theme, Ui.trf("{row} · {kind}", "row", themeTitle(theme, "tv"), "kind", Ui.tr("Shows"))));
-            }
-        } else {
-            List<String> themes = new ArrayList<>(Arrays.asList(HOT, POPULAR, NEW, TOP, KIDS));   // Kids: the first genre
-            for (int g : kind.equals("movie") ? MOVIE_GENRES : TV_GENRES) themes.add("g" + g);
-            for (String theme : themes) all.add(row(kind, theme, themeTitle(theme, kind)));
-        }
+        for (RowDef d : defsOn(tab)) all.add(row(d.kind, d.theme, title(d, kind == null)));
         // Titles go to the narrowest row first: Popular (and New, Top) would otherwise take most of Kids' and the
         // genres' titles, and their feeds are far longer to make up for it.
-        List<Row> claim = new ArrayList<>(all);
+        List<Row> claim = new ArrayList<>();
+        for (Row row : all) if (!YouTubeFeed.KIND.equals(row.kind)) claim.add(row);
         Collections.sort(claim, (a, b) -> claimOrder(a.theme) - claimOrder(b.theme));   // stable: movies before shows
         for (Row row : claim) fill(row, have);
+        Set<String> seen = new HashSet<>();   // a video shows in one of the tab's YouTube rows only
         for (Row row : all) {
+            if (YouTubeFeed.KIND.equals(row.kind)) fillYouTube(row, seen);
             if (!row.picks.isEmpty()) out.add(row);
-            if (kind == null && row.theme.equals(HOT) && "tv".equals(row.kind)) youTubeRow(out);
         }
         return out;
     }
 
+    /**
+     * The rows moved on the TV take the places of the moved rows, in the order saved; the others keep their own
+     * places (a row that came later, such as an added one, shows where it would anyway).
+     */
+    private static <T> List<T> ordered(List<T> rows, List<String> order, java.util.function.Function<T, String> id) {
+        if (order.isEmpty()) return rows;
+        List<T> moved = new ArrayList<>();
+        for (T row : rows) if (order.contains(id.apply(row))) moved.add(row);
+        Collections.sort(moved, (a, b) -> order.indexOf(id.apply(a)) - order.indexOf(id.apply(b)));
+        List<T> out = new ArrayList<>(rows.size());
+        int next = 0;
+        for (T row : rows) out.add(order.contains(id.apply(row)) ? moved.get(next++) : row);
+        return out;
+    }
+
+    /** Narrow rows first: Trending, Kids, a genre, a service, the gems, classics and decades; then New, Top, Popular. */
     private static int claimOrder(String theme) {
-        return theme.equals(HOT) ? 0 : theme.equals(KIDS) ? 1 : theme.startsWith("g") ? 2 : theme.equals(NEW) ? 3
-                : theme.equals(TOP) ? 4 : 5;
+        return theme.equals(HOT) ? 0 : theme.equals(KIDS) ? 1 : theme.equals(NEW) ? 3 : theme.equals(TOP) ? 4
+                : theme.equals(POPULAR) ? 5 : 2;
     }
 
     private static Row row(String kind, String theme, String title) {
@@ -307,10 +503,32 @@ final class Recs {
 
     /** A row's heading: the theme's, or the genre's name in the TV's language (null until the genre list came). */
     private String themeTitle(String theme, String kind) {
-        return theme.equals(HOT) ? Ui.tr("Trending now") : theme.equals(POPULAR) ? Ui.tr("Popular")
-                : theme.equals(NEW) ? Ui.tr("New releases") : theme.equals(TOP) ? Ui.tr("Top rated")
-                : theme.equals(KIDS) ? Ui.tr("genre|Kids")
-                : genreNames.get(kind + ":" + theme.substring(1));
+        if (theme.equals(HOT)) return Ui.tr("Trending now");
+        if (theme.equals(POPULAR)) return Ui.tr("Popular");
+        if (theme.equals(NEW)) return Ui.tr("New releases");
+        if (theme.equals(TOP)) return Ui.tr("Top rated");
+        if (theme.equals(KIDS)) return Ui.tr("genre|Kids");
+        if (theme.equals(GEMS)) return Ui.tr("Hidden gems");
+        if (theme.equals(CLASSICS)) return Ui.tr("Classics");
+        if (theme.startsWith("d")) return Ui.trf("The {decade}s", "decade", theme.substring(1));
+        if (theme.startsWith("s")) {
+            String[] s = rowService(theme);
+            if (s == null) return null;
+            String suffix = theme.substring(1 + s[0].length());
+            if (suffix.equals("n")) return Ui.trf("New on {service}", "service", s[2]);
+            if (suffix.equals("t")) return Ui.trf("Top rated on {service}", "service", s[2]);
+            return Ui.trf("Popular on {service}", "service", s[2]);
+        }
+        return genreNames.get(kind + ":" + theme.substring(1));
+    }
+
+    /** The service of a theme "s8", "s8n", "s8t". */
+    private static String[] rowService(String theme) {
+        int end = 1;
+        while (end < theme.length() && Character.isDigit(theme.charAt(end))) end++;
+        String id = theme.substring(1, end);
+        for (String[] s : ROW_SERVICES) if (s[0].equals(id)) return s;
+        return null;
     }
 
     /** The row's titles, but those another row of the tab already shows; a short row asks for its next pages. */
@@ -330,51 +548,70 @@ final class Recs {
 
     private static final int SHORT_ROW = 12;
 
-    // MARK: - Trending on YouTube (Explore)
-
-    private volatile List<Pick> youtube = new ArrayList<>();
-    private String youtubeNext;
-    private long youtubeAt, youtubeFailedAt;
-    private final java.util.concurrent.atomic.AtomicBoolean youtubeBusy = new java.util.concurrent.atomic.AtomicBoolean();
-    private static final long YOUTUBE_EVERY = 3600_000L;
-
-    /** Adds "Trending now · YouTube" (with youtube_key), fetching its first page again every hour. */
-    private void youTubeRow(List<Row> out) {
-        if (!YouTubeFeed.on()) return;
-        long now = System.currentTimeMillis();
-        if ((youtube.isEmpty() || now - youtubeAt > YOUTUBE_EVERY || now < youtubeAt) && now - youtubeFailedAt > 10 * 60_000L) {
-            fetchYouTube(true);
+    /** Rows the first list doesn't fetch (added in Home Settings › Content): their first page comes with more(). */
+    private static boolean listed(String kind, String theme) {
+        if (theme.equals(HOT) || theme.equals(POPULAR) || theme.equals(NEW) || theme.equals(TOP) || theme.equals(KIDS)) return true;
+        if (!theme.startsWith("g")) return false;
+        for (String kd : kind == null ? new String[] {"movie", "tv"} : new String[] {kind}) {
+            for (int g : kd.equals("movie") ? MOVIE_GENRES : TV_GENRES) if (theme.equals("g" + g)) return true;
         }
-        Row row = new Row();
-        row.theme = HOT;
-        row.kind = YouTubeFeed.KIND;
-        row.title = Ui.trf("{row} · {kind}", "row", Ui.tr("Trending now"), "kind", "YouTube");
-        for (Pick p : youtube) if (!hidden().contains(key(p))) row.picks.add(p);
-        if (!row.picks.isEmpty()) out.add(row);
+        return false;
     }
 
-    /** The first page again (fresh), or the next one; one fetch at a time, then the rows are rebuilt. */
-    private void fetchYouTube(final boolean fresh) {
-        if (!fresh && youtubeNext == null) return;   // the end of YouTube's list
-        if (!youtubeBusy.compareAndSet(false, true)) return;
-        final String token = fresh ? null : youtubeNext;
+    // MARK: - Trending on YouTube
+
+    /** One of YouTube's trending charts (theme HOT: all videos; "y10": music…). */
+    private static final class Feed {
+        volatile List<Pick> items = new ArrayList<>();
+        String next;
+        long at, failedAt;
+        final java.util.concurrent.atomic.AtomicBoolean busy = new java.util.concurrent.atomic.AtomicBoolean();
+    }
+
+    private final Map<String, Feed> feeds = new HashMap<>();
+    private static final long YOUTUBE_EVERY = 3600_000L;
+
+    private synchronized Feed feed(String theme) {
+        Feed f = feeds.get(theme);
+        if (f == null) feeds.put(theme, f = new Feed());
+        return f;
+    }
+
+    /** A YouTube row (with youtube_key), its first page fetched again every hour; videos an earlier row has are left out. */
+    private void fillYouTube(Row row, Set<String> seen) {
+        if (!YouTubeFeed.on()) return;
+        Feed f = feed(row.theme);
+        long now = System.currentTimeMillis();
+        if ((f.items.isEmpty() || now - f.at > YOUTUBE_EVERY || now < f.at) && now - f.failedAt > 10 * 60_000L) {
+            fetchYouTube(row.theme, true);
+        }
+        for (Pick p : f.items) if (!hidden().contains(key(p)) && seen.add(key(p))) row.picks.add(p);
+    }
+
+    /** The first page again (fresh), or the next one; one fetch at a time per chart, then the rows are rebuilt. */
+    private void fetchYouTube(final String theme, final boolean fresh) {
+        final Feed f = feed(theme);
+        if (!fresh && f.next == null) return;   // the end of YouTube's list
+        if (!f.busy.compareAndSet(false, true)) return;
+        final String token = fresh ? null : f.next;
+        final String category = theme.startsWith("y") ? theme.substring(1) : null;
         quick.execute(() -> {
             try {
                 String[] next = new String[1];
-                List<Pick> page = YouTubeFeed.page(REGION, lang(), token, next);
-                List<Pick> all = fresh ? new ArrayList<>() : new ArrayList<>(youtube);
+                List<Pick> page = YouTubeFeed.page(REGION, lang(), category, token, next);
+                List<Pick> all = fresh ? new ArrayList<>() : new ArrayList<>(f.items);
                 Set<String> seen = new HashSet<>();
                 for (Pick p : all) seen.add(key(p));
                 for (Pick p : page) if (seen.add(key(p))) all.add(p);
-                youtube = all;
-                youtubeNext = next[0];
-                if (fresh) youtubeAt = System.currentTimeMillis();
+                f.items = all;
+                f.next = next[0];
+                if (fresh) f.at = System.currentTimeMillis();
                 notifyListeners();
             } catch (IOException e) {
-                youtubeFailedAt = System.currentTimeMillis();
-                AppLog.w("youtube: " + e.getMessage());
+                f.failedAt = System.currentTimeMillis();
+                AppLog.w("youtube " + theme + ": " + e.getMessage());
             } finally {
-                youtubeBusy.set(false);
+                f.busy.set(false);
             }
         });
     }
@@ -755,10 +992,21 @@ final class Recs {
      * past 3 months), the best rated (with enough votes to mean something), kids, a genre (with some votes, so not
      * just what's new and unknown).
      */
-    private String path(String kind, String theme, int page) {
+    private String path(String kind, String theme, int page) throws IOException {
         if (theme.equals(HOT)) return "/trending/" + kind + "/week?language=" + lang() + "&page=" + page;
         boolean movie = kind.equals("movie");
-        String common = filters + "&sort_by=popularity.desc";
+        String f = filters;
+        if (theme.startsWith("s")) {
+            // A service's own row: that service only (even one the TV lacks: its titles open in Stremio), then as
+            // Popular, New releases or Top rated.
+            String[] s = rowService(theme);
+            if (s == null) throw new IOException("no such row: " + theme);
+            String suffix = theme.substring(1 + s[0].length());
+            f = filters.replaceAll("&with_watch_providers=[^&]*", "") + "&with_watch_providers=" + URLEncoder.encode(s[1], "UTF-8");
+            theme = suffix.equals("n") ? NEW : suffix.equals("t") ? TOP : POPULAR;
+        }
+        String common = f + "&sort_by=popularity.desc";
+        String date = movie ? "primary_release_date" : "first_air_date";
         String q;
         if (theme.equals(POPULAR)) {
             q = common;
@@ -766,12 +1014,21 @@ final class Recs {
             q = movie ? "&vote_count.gte=30&primary_release_date.gte=" + day(-365) + "&primary_release_date.lte=" + day(0) + common
                     : "&vote_count.gte=20&air_date.gte=" + day(-90) + "&air_date.lte=" + day(0) + common;
         } else if (theme.equals(TOP)) {
-            q = (movie ? "&vote_count.gte=1000" : "&vote_count.gte=300") + "&sort_by=vote_average.desc" + filters;
+            q = (movie ? "&vote_count.gte=1000" : "&vote_count.gte=300") + "&sort_by=vote_average.desc" + f;
         } else if (theme.equals(KIDS)) {
             // Shows have a Kids genre; movies don't: Family without horror, thrillers or crime.
             q = movie ? "&with_genres=" + FAMILY + "&without_genres=27,53,80" + (Config.HIDE_ANIMATION ? "," + ANIMATION : "")
                         + "&vote_count.gte=50" + common.replace("&without_genres=" + ANIMATION, "")
                     : "&with_genres=" + TV_KIDS + "&vote_count.gte=10" + common;
+        } else if (theme.equals(GEMS)) {
+            // Rated highly by the few who saw them.
+            q = "&vote_average.gte=7.5" + (movie ? "&vote_count.gte=100&vote_count.lte=1500" : "&vote_count.gte=50&vote_count.lte=600") + common;
+        } else if (theme.equals(CLASSICS)) {
+            q = "&" + date + ".lte=1989-12-31" + (movie ? "&vote_count.gte=300" : "&vote_count.gte=50") + common;
+        } else if (theme.startsWith("d")) {
+            int from = Integer.parseInt(theme.substring(1));
+            q = "&" + date + ".gte=" + from + "-01-01&" + date + ".lte=" + (from + 9) + "-12-31"
+                    + (movie ? "&vote_count.gte=200" : "&vote_count.gte=50") + common;
         } else {
             q = "&with_genres=" + theme.substring(1) + "&vote_count.gte=50" + common;
         }
@@ -799,7 +1056,7 @@ final class Recs {
      */
     void more(String kind, String theme) {
         if (YouTubeFeed.KIND.equals(kind)) {
-            fetchYouTube(false);
+            if (theme != null) fetchYouTube(theme, false);
             return;
         }
         if (!hasKey(context) || filters.isEmpty() || theme == null) return;
@@ -816,7 +1073,7 @@ final class Recs {
                 for (int tries = 0; tries < 5 && added < 8 && !exhausted.contains(k); tries++) {
                     int next;
                     synchronized (pages) {
-                        next = pages.containsKey(k) ? pages.get(k) + 1 : 2;
+                        next = pages.containsKey(k) ? pages.get(k) + 1 : listed(kind, theme) ? 2 : 1;
                     }
                     List<List<Pick>> found = new ArrayList<>();
                     for (String kd : kind == null ? new String[] {"movie", "tv"} : new String[] {kind}) {

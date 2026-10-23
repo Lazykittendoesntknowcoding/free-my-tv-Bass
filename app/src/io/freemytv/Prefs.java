@@ -11,8 +11,10 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * Settings changed on the TV itself (Free My TV > Settings). config.properties only gives the first
@@ -164,6 +166,56 @@ final class Prefs {
         StringBuilder sb = new StringBuilder();
         for (String p : packages) sb.append(sb.length() == 0 ? "" : ",").append(p);
         put("shelf", sb.toString());
+    }
+
+    // MARK: - Picks rows (moved, hidden or added on the home screen and in Home Settings › Content, per tab: "all" for Explore, "movie", "tv")
+
+    /** The tab's rows in the order they were last moved to, by Recs.Row.id; empty until a row is moved. */
+    static List<String> rowOrder(String tab) {
+        return list(sp().getString("rowOrder." + tab, ""));
+    }
+
+    static void setRowOrder(String tab, List<String> ids) {
+        put("rowOrder." + tab, join(ids));
+    }
+
+    static Set<String> hiddenRows(String tab) {
+        return new HashSet<>(list(sp().getString("rowsHidden." + tab, "")));
+    }
+
+    static void hideRow(String tab, String id) {
+        Set<String> ids = hiddenRows(tab);
+        ids.add(id);
+        put("rowsHidden." + tab, join(ids));
+    }
+
+    static void unhideRow(String tab, String id) {
+        Set<String> ids = hiddenRows(tab);
+        if (ids.remove(id)) put("rowsHidden." + tab, join(ids));
+    }
+
+    /** Rows added in Home Settings › Content (the ones a tab doesn't show by itself), in the order they were added. */
+    static List<String> addedRows(String tab) {
+        return list(sp().getString("rowsAdded." + tab, ""));
+    }
+
+    static void setRowAdded(String tab, String id, boolean added) {
+        List<String> ids = addedRows(tab);
+        ids.remove(id);
+        if (added) ids.add(id);
+        put("rowsAdded." + tab, join(ids));
+    }
+
+    private static List<String> list(String v) {
+        List<String> out = new ArrayList<>();
+        for (String p : v.split(",")) if (!p.isEmpty()) out.add(p);
+        return out;
+    }
+
+    private static String join(Iterable<String> items) {
+        StringBuilder sb = new StringBuilder();
+        for (String p : items) sb.append(sb.length() == 0 ? "" : ",").append(p);
+        return sb.toString();
     }
 
     // MARK: - Top buttons

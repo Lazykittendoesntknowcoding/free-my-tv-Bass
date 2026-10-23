@@ -113,7 +113,8 @@ public class SettingsActivity extends Activity {
     }
 
     static final class SettingsView extends View implements Choreographer.FrameCallback {
-        private static final int MAIN = 0, HOME_CHOICE = 1, HOME_SETTINGS = 2, REMOTE_KEYS = 3, PICKER = 4, SHELF_EDIT = 5;
+        private static final int MAIN = 0, HOME_CHOICE = 1, HOME_SETTINGS = 2, REMOTE_KEYS = 3, PICKER = 4, SHELF_EDIT = 5,
+                CONTENT_TABS = 6, CONTENT_EDIT = 7, CONTENT_ADD = 8;
         private static final float LIST_ROW_H = 68, LIST_ROW_GAP = 6;
         private static final int PICK_VISIBLE = 9;
         private static final float LIST_X = 1000, LIST_R = 1824, LIST_TOP = 186, ROW_GAP = 8, CHOICE_H = 104;
@@ -248,6 +249,16 @@ public class SettingsActivity extends Activity {
                     return app[1] + ", " + (place >= 0 ? Ui.trf("on the shelf, place {n}", "n", place + 1)
                             : Ui.tr("not on the shelf"));
                 }
+                case CONTENT_TABS:
+                    return row < CONTENT_TABS_IDS.length ? tabName(CONTENT_TABS_IDS[row]) + ", "
+                            + Ui.plural("plural|one:{n} row|other:{n} rows", Recs.rowsOn(CONTENT_TABS_IDS[row]).size()) : "";
+                case CONTENT_EDIT:
+                case CONTENT_ADD: {
+                    int at = pickScroll + row;
+                    if (at >= contentItems.size()) return "";
+                    String[] item = contentItems.get(at);
+                    return contentLabel(item) + ", " + contentValue(item) + ", " + Ui.trf("{i} of {n}", "i", at + 1, "n", contentItems.size());
+                }
                 default:
                     return "";
             }
@@ -346,6 +357,9 @@ public class SettingsActivity extends Activity {
                 case HOME_SETTINGS: return settingLabels().length;
                 case PICKER: return Math.min(PICK_VISIBLE, pickLabels.size());
                 case SHELF_EDIT: return Math.min(PICK_VISIBLE, shelfRows.size());
+                case CONTENT_TABS: return CONTENT_TABS_IDS.length;
+                case CONTENT_EDIT:
+                case CONTENT_ADD: return Math.min(PICK_VISIBLE, contentItems.size());
                 default: return Prefs.KEYS.length;
             }
         }
@@ -374,7 +388,8 @@ public class SettingsActivity extends Activity {
             c.drawText(Ui.tr("Your TV's home screen and screensaver"), cx, 660 * k, subtitle);
             c.drawText(versionName(getContext()), cx, 704 * k, version);
 
-            if (screen == MAIN) drawMain(c, seconds); else if (screen == HOME_CHOICE) drawChoice(c); else if (screen == PICKER) drawPicker(c); else if (screen == SHELF_EDIT) drawShelfEditor(c); else drawList(c);
+            if (screen == MAIN) drawMain(c, seconds); else if (screen == HOME_CHOICE) drawChoice(c); else if (screen == PICKER) drawPicker(c); else if (screen == SHELF_EDIT) drawShelfEditor(c);
+            else if (screen == CONTENT_TABS || screen == CONTENT_EDIT || screen == CONTENT_ADD) drawContent(c); else drawList(c);
         }
 
         private void drawMain(Canvas c, float seconds) {
@@ -591,6 +606,9 @@ public class SettingsActivity extends Activity {
                     if (down && screen == SHELF_EDIT) {
                         moveShelfApp(e.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
                         invalidate();
+                    } else if (down && screen == CONTENT_EDIT) {
+                        moveContentRow(e.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
+                        invalidate();
                     } else if (down && (screen == HOME_SETTINGS || screen == REMOTE_KEYS)) {
                         adjust(e.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
                         invalidate();
@@ -618,6 +636,16 @@ public class SettingsActivity extends Activity {
                             } else if (screen == PICKER) {
                                 focus = pickFor - 1;
                                 screen = REMOTE_KEYS;
+                            } else if (screen == CONTENT_ADD) {
+                                String group = contentGroup;
+                                openContent(contentTab);
+                                for (int i = 0; i < contentItems.size(); i++) if (contentItems.get(i)[1].equals(group)) showContentItem(i);
+                            } else if (screen == CONTENT_EDIT) {
+                                focus = java.util.Arrays.asList(CONTENT_TABS_IDS).indexOf(contentTab);
+                                screen = CONTENT_TABS;
+                            } else if (screen == CONTENT_TABS) {
+                                focus = contentRow();
+                                screen = HOME_SETTINGS;
                             } else {
                                 focus = screen == HOME_SETTINGS ? 2 : screen == SHELF_EDIT ? (editingTop ? 4 : 3)
                                         : screen == REMOTE_KEYS ? 5 : 0;
@@ -652,6 +680,7 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("News widget"));
             l.add(Ui.tr("Screensaver background"));
             if (Prefs.dreamPhotos()) l.add(Ui.tr("Photo change"));
+            l.add(Ui.tr("Content"));
             return l.toArray(new String[0]);
         }
 
@@ -669,8 +698,14 @@ public class SettingsActivity extends Activity {
             v[CITY_ROW] = !cityStatus.isEmpty() ? cityStatus : Prefs.city().isEmpty() ? "—" : Prefs.city();
             v[6] = onOff(Prefs.news());
             v[BACKGROUND_ROW] = Prefs.dreamPhotos() ? Ui.tr("Photos") : Ui.tr("Aurora");
-            if (v.length > PHOTO_TIME_ROW) v[PHOTO_TIME_ROW] = photoTime(Prefs.photoSeconds());
+            if (Prefs.dreamPhotos()) v[PHOTO_TIME_ROW] = photoTime(Prefs.photoSeconds());
+            v[contentRow()] = "";
             return v;
+        }
+
+        /** Content: which rows Explore, Movies and Shows show (OK opens it). */
+        private int contentRow() {
+            return Prefs.dreamPhotos() ? PHOTO_TIME_ROW + 1 : PHOTO_TIME_ROW;
         }
 
         private static String photoTime(int seconds) {
@@ -737,6 +772,7 @@ public class SettingsActivity extends Activity {
                 Prefs.setKeyApp(Prefs.KEYS[focus], appPkgs.get(next));
                 return;
             }
+            if (focus == contentRow()) return;   // OK only
             switch (focus) {
                 case 0: break;   // OK opens the language picker.
                 case 1: {
@@ -817,11 +853,163 @@ public class SettingsActivity extends Activity {
         }
 
         private boolean scrolling() {
-            return screen == PICKER || screen == SHELF_EDIT;
+            return screen == PICKER || screen == SHELF_EDIT || screen == CONTENT_EDIT || screen == CONTENT_ADD;
         }
 
         private int listSize() {
-            return screen == SHELF_EDIT ? shelfRows.size() : pickLabels.size();
+            return screen == SHELF_EDIT ? shelfRows.size() : screen == CONTENT_EDIT || screen == CONTENT_ADD ? contentItems.size()
+                    : pickLabels.size();
+        }
+
+        // MARK: - Content (which rows Explore, Movies and Shows show)
+
+        private static final String[] CONTENT_TABS_IDS = {"all", "movie", "tv"};
+        private String contentTab = "all", contentGroup = "";
+        // The list: {"row", id} or {"group", group}. The tab's rows, then the groups to add more from.
+        private final List<String[]> contentItems = new ArrayList<>();
+        private final List<String> contentOn = new ArrayList<>();     // the tab's rows, in order
+        private final List<String> contentKept = new ArrayList<>();   // turned off on this visit: listed to tick again
+
+        private static String tabName(String tab) {
+            return tab.equals("movie") ? Ui.tr("Movies") : tab.equals("tv") ? Ui.tr("Shows") : Ui.tr("Explore");
+        }
+
+        /** The tab's list: its rows (in order), the ones just turned off, then the groups. */
+        private void openContent(String tab) {
+            if (screen == CONTENT_TABS) contentKept.clear();
+            contentTab = tab;
+            buildContent();
+            pickScroll = 0;
+            focus = 0;
+            screen = CONTENT_EDIT;
+        }
+
+        private void buildContent() {
+            contentOn.clear();
+            contentOn.addAll(Recs.rowsOn(contentTab));
+            contentItems.clear();
+            for (String id : contentOn) contentItems.add(new String[] {"row", id});
+            for (String id : contentKept) if (!contentOn.contains(id)) contentItems.add(new String[] {"row", id});
+            for (String g : Recs.GROUPS) contentItems.add(new String[] {"group", g});
+        }
+
+        private void openGroup(String group) {
+            contentGroup = group;
+            contentOn.clear();
+            contentOn.addAll(Recs.rowsOn(contentTab));
+            contentItems.clear();
+            for (String id : Recs.rowChoices(contentTab, group)) contentItems.add(new String[] {"row", id});
+            pickScroll = 0;
+            focus = 0;
+            screen = CONTENT_ADD;
+        }
+
+        /** Scrolls item i into view and focuses it. */
+        private void showContentItem(int i) {
+            int visible = rowCount();
+            if (i < pickScroll) pickScroll = i;
+            else if (i >= pickScroll + visible) pickScroll = i - visible + 1;
+            pickScroll = Math.max(0, Math.min(pickScroll, contentItems.size() - visible));
+            focus = i - pickScroll;
+        }
+
+        /** The same list after a change, the focus still on that row. */
+        private void refreshContent(String id) {
+            if (screen == CONTENT_EDIT) {
+                buildContent();
+            } else {
+                contentOn.clear();
+                contentOn.addAll(Recs.rowsOn(contentTab));
+            }
+            for (int i = 0; i < contentItems.size(); i++) if (contentItems.get(i)[1].equals(id)) showContentItem(i);
+        }
+
+        /** OK: a group opens (true: another screen); a row is ticked on or off. */
+        private boolean activateContent() {
+            String[] item = contentItems.get(pickScroll + focus);
+            if (item[0].equals("group")) {
+                openGroup(item[1]);
+                return true;
+            }
+            boolean on = contentOn.contains(item[1]);
+            Recs.get(getContext()).setRowOn(contentTab, item[1], !on);
+            if (on) {
+                if (!contentKept.contains(item[1])) contentKept.add(item[1]);
+            } else {
+                contentKept.remove(item[1]);
+            }
+            refreshContent(item[1]);
+            return false;
+        }
+
+        /** ← → : the focused row one place earlier or later on the tab. */
+        private void moveContentRow(int dir) {
+            String[] item = contentItems.get(pickScroll + focus);
+            if (!item[0].equals("row") || !contentOn.contains(item[1])) return;
+            Recs.get(getContext()).moveRow(contentTab, item[1], dir);
+            refreshContent(item[1]);
+        }
+
+        private String contentLabel(String[] item) {
+            return item[0].equals("group") ? Ui.trf("Add rows · {group}", "group", Recs.groupName(item[1]))
+                    : Recs.get(getContext()).rowName(contentTab, item[1]);
+        }
+
+        /** "#3" or "Off" for a row; how many of its rows are on for a group. */
+        private String contentValue(String[] item) {
+            if (item[0].equals("group")) {
+                int n = 0;
+                for (String id : Recs.rowChoices(contentTab, item[1])) if (contentOn.contains(id)) n++;
+                return Ui.trf("{n} on", "n", n);
+            }
+            int place = contentOn.indexOf(item[1]);
+            if (screen == CONTENT_ADD) return place >= 0 ? Ui.tr("On") : Ui.tr("Off");
+            return place >= 0 ? "#" + (place + 1) : Ui.tr("shelf|Off");
+        }
+
+        private void drawContent(Canvas c) {
+            Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
+            String title = screen == CONTENT_TABS ? Ui.tr("Content")
+                    : screen == CONTENT_EDIT ? Ui.trf("Content · {tab}", "tab", tabName(contentTab))
+                    : tabName(contentTab) + " · " + Recs.groupName(contentGroup);
+            c.drawText(title, LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
+            int rows = rowCount();
+            for (int i = 0; i < rows; i++) {
+                String label, value;
+                boolean lit = true, more = false;
+                if (screen == CONTENT_TABS) {
+                    label = tabName(CONTENT_TABS_IDS[i]);
+                    value = Ui.plural("plural|one:{n} row|other:{n} rows", Recs.rowsOn(CONTENT_TABS_IDS[i]).size());
+                    more = true;
+                } else {
+                    String[] item = contentItems.get(pickScroll + i);
+                    label = contentLabel(item);
+                    value = contentValue(item);
+                    more = item[0].equals("group");
+                    lit = more || contentOn.contains(item[1]);
+                }
+                float y = (LIST_TOP + 20 + i * (LIST_ROW_H + LIST_ROW_GAP)) * k;
+                rowRect.set(LIST_X * k, y, LIST_R * k, y + LIST_ROW_H * k);
+                float f = drawRowBackground(c, i);
+                rowLabel.setColor(blend(lit ? 0xF2FFFFFF : 0x80FFFFFF, lit ? INK : 0x801C1C1E, f));
+                rowValue.setColor(blend(0xB3FFFFFF, 0xB31C1C1E, f));
+                float base = rowRect.centerY() + Ui.halfCap(rowLabel);
+                c.drawText(TextUtils.ellipsize(label, new TextPaint(rowLabel), 560 * k, TextUtils.TruncateAt.END).toString(), rowRect.left + 30 * k, base, rowLabel);
+                float right = rowRect.right - 30 * k;
+                if (more) {
+                    float cw = Symbols.width(getContext(), "chevron_right", 22 * k);
+                    Symbols.draw(getContext(), c, "chevron_right", right - cw / 2, rowRect.centerY(), 22 * k, blend(0x66FFFFFF, 0x991C1C1E, f));
+                    right -= cw + 16 * k;
+                }
+                c.drawText(value, right, base, rowValue);
+            }
+            Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
+            float hy = (LIST_TOP + 20 + rows * (LIST_ROW_H + LIST_ROW_GAP) + 36) * k;
+            String text = screen == CONTENT_TABS ? Ui.tr("Choose the rows each tab shows.")
+                    : screen == CONTENT_EDIT ? Ui.tr("OK turns a row on or off. ← → change the order.")
+                    : Ui.tr("OK turns a row on or off. New rows go at the end.");
+            if (screen != CONTENT_TABS) text = (pickScroll + focus + 1) + " / " + contentItems.size() + "  ·  " + text;
+            c.drawText(text, LIST_X * k + 30 * k, hy, hint);
         }
 
         // MARK: - Shelf editor
@@ -973,6 +1161,10 @@ public class SettingsActivity extends Activity {
                 rowValue.setColor(blend(0xB3FFFFFF, 0xB31C1C1E, f));
                 float base = rowRect.centerY() + Ui.halfCap(rowLabel);
                 c.drawText(labels[i], rowRect.left + 30 * k, base, rowLabel);
+                if (!keys && i == contentRow()) {
+                    float cw = Symbols.width(getContext(), "chevron_right", 22 * k);
+                    Symbols.draw(getContext(), c, "chevron_right", rowRect.right - 30 * k - cw / 2, rowRect.centerY(), 22 * k, blend(0x66FFFFFF, 0x991C1C1E, f));
+                }
                 c.drawText(values[i], rowRect.right - 30 * k, base, rowValue);
             }
             Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
@@ -1025,6 +1217,16 @@ public class SettingsActivity extends Activity {
             } else if (screen == HOME_SETTINGS && focus == CITY_ROW) {
                 askCity();
                 return;
+            } else if (screen == HOME_SETTINGS && focus == contentRow()) {
+                screen = CONTENT_TABS;
+                focus = 0;
+            } else if (screen == CONTENT_TABS) {
+                openContent(CONTENT_TABS_IDS[focus]);
+            } else if (screen == CONTENT_EDIT || screen == CONTENT_ADD) {
+                if (!activateContent()) {
+                    invalidate();
+                    return;
+                }
             } else if (screen == HOME_SETTINGS) {
                 adjust(1);
                 invalidate();
