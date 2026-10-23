@@ -3682,6 +3682,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      * fully grown card (in slot i: row × 2 + the card's parity, so neighbouring cards, in a row or one above the
      * other, don't take each other's place while the focus moves) and cut to the card while it grows.
      */
+    private static final int OVERVIEW_LINES = 2;
+
     private void drawOverview(Canvas c, int i, String text, RectF card, float bw, float bh, float r, float f) {
         int slots = Math.max(1, pickRows.size()) * 2;
         if (overviewLayouts.length < slots) {
@@ -3690,10 +3692,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             overviewScrims = new LinearGradient[slots];
             overviewW = new float[slots];
         }
-        float pad = 20 * k, gw = bw * (1 + PICK_GROW), gh = bh * (1 + PICK_GROW);
+        float pad = 20 * k, gw = bw * (1 + PICK_GROW);
         if (overviewLayouts[i] == null || !text.equals(overviewTexts[i]) || overviewW[i] != bw) {
             int width = Math.max(1, Math.round(gw - 2 * pad));
-            int lines = Math.max(2, (int) ((gh * 0.75f - 2 * pad) / overviewPaint.getFontSpacing()));
+            int lines = OVERVIEW_LINES;   // two lines at the foot: the picture stays in view
             overviewLayouts[i] = StaticLayout.Builder.obtain(text, 0, text.length(), overviewPaint, width)
                     .setMaxLines(lines)
                     .setEllipsize(TextUtils.TruncateAt.END)
