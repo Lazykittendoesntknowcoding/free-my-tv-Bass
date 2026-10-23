@@ -2923,6 +2923,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (key == null ? selectedKey == null : key.equals(selectedKey)) return;
         selectedKey = key;
         backdropKey = null;
+        recs.detail(p);     // genre, runtime and service for the line under it (Recs notifies when they arrive)
         handler.removeCallbacks(backdropDue);
         if (key != null) handler.postDelayed(backdropDue, BACKDROP_WAIT_MS);
     }
