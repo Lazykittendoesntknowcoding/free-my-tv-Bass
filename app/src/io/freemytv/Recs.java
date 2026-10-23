@@ -23,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -268,18 +269,40 @@ final class Recs {
         List<Row> out = new ArrayList<>();
         if (!hasKey(context)) return out;
         Map<String, Boolean> have = new HashMap<>();
+        List<Row> all = new ArrayList<>();
         if (kind == null) {
             for (String theme : new String[] {HOT, POPULAR, NEW, TOP, KIDS}) {
-                addRow(out, "movie", theme, Ui.trf("{row} · {kind}", "row", themeTitle(theme, "movie"), "kind", Ui.tr("Movies")), have);
-                addRow(out, "tv", theme, Ui.trf("{row} · {kind}", "row", themeTitle(theme, "tv"), "kind", Ui.tr("Shows")), have);
-                if (theme.equals(HOT)) youTubeRow(out);
+                all.add(row("movie", theme, Ui.trf("{row} · {kind}", "row", themeTitle(theme, "movie"), "kind", Ui.tr("Movies"))));
+                all.add(row("tv", theme, Ui.trf("{row} · {kind}", "row", themeTitle(theme, "tv"), "kind", Ui.tr("Shows"))));
             }
-            return out;
+        } else {
+            List<String> themes = new ArrayList<>(Arrays.asList(HOT, POPULAR, NEW, TOP, KIDS));   // Kids: the first genre
+            for (int g : kind.equals("movie") ? MOVIE_GENRES : TV_GENRES) themes.add("g" + g);
+            for (String theme : themes) all.add(row(kind, theme, themeTitle(theme, kind)));
         }
-        List<String> themes = new ArrayList<>(Arrays.asList(HOT, POPULAR, NEW, TOP, KIDS));   // Kids: the first genre
-        for (int g : kind.equals("movie") ? MOVIE_GENRES : TV_GENRES) themes.add("g" + g);
-        for (String theme : themes) addRow(out, kind, theme, themeTitle(theme, kind), have);
+        // Titles go to the narrowest row first: Popular (and New, Top) would otherwise take most of Kids' and the
+        // genres' titles, and their feeds are far longer to make up for it.
+        List<Row> claim = new ArrayList<>(all);
+        Collections.sort(claim, (a, b) -> claimOrder(a.theme) - claimOrder(b.theme));   // stable: movies before shows
+        for (Row row : claim) fill(row, have);
+        for (Row row : all) {
+            if (!row.picks.isEmpty()) out.add(row);
+            if (kind == null && row.theme.equals(HOT) && "tv".equals(row.kind)) youTubeRow(out);
+        }
         return out;
+    }
+
+    private static int claimOrder(String theme) {
+        return theme.equals(HOT) ? 0 : theme.equals(KIDS) ? 1 : theme.startsWith("g") ? 2 : theme.equals(NEW) ? 3
+                : theme.equals(TOP) ? 4 : 5;
+    }
+
+    private static Row row(String kind, String theme, String title) {
+        Row row = new Row();
+        row.kind = kind;
+        row.theme = theme;
+        row.title = title;
+        return row;
     }
 
     /** A row's heading: the theme's, or the genre's name in the TV's language (null until the genre list came). */
@@ -290,25 +313,19 @@ final class Recs {
                 : genreNames.get(kind + ":" + theme.substring(1));
     }
 
-    /** Adds the row of `theme` for `kind` (titles a row before it shows are left out), when it has any. */
-    private void addRow(List<Row> out, String kind, String theme, String title, Map<String, Boolean> have) {
-        Row row = new Row();
-        row.theme = theme;
-        row.kind = kind;
-        row.title = title;
+    /** The row's titles, but those another row of the tab already shows; a short row asks for its next pages. */
+    private void fill(Row row, Map<String, Boolean> have) {
         if (row.title == null) return;
         synchronized (owners) {
-            Map<String, String> own = owners(kind);
+            Map<String, String> own = owners(row.kind);
             for (Pick p : picks) {
-                if (!p.themes.contains(theme) || !shown(p, kind, have)) continue;
+                if (!p.themes.contains(row.theme) || !shown(p, row.kind, have)) continue;
                 String o = own.get(key(p));
-                if (o == null) own.put(key(p), o = theme);   // the first row to show it keeps it
-                if (o.equals(theme)) row.picks.add(p);
+                if (o == null) own.put(key(p), o = row.theme);   // the first row to show it keeps it
+                if (o.equals(row.theme)) row.picks.add(p);
             }
         }
-        // Short after skipping what other rows show (Popular is much like Trending): its next pages fill it.
-        if (row.picks.size() < SHORT_ROW && pagesOf(kind, theme) < 10) more(kind, theme);
-        if (!row.picks.isEmpty()) out.add(row);
+        if (row.picks.size() < SHORT_ROW && pagesOf(row.kind, row.theme) < 20) more(row.kind, row.theme);
     }
 
     private static final int SHORT_ROW = 12;
@@ -822,10 +839,15 @@ final class Recs {
                     // it too (Popular has many of Kids') can't take it at the next rebuild and leave this row short.
                     synchronized (owners) {
                         Map<String, String> own = owners(kind);
-                        for (List<Pick> l : found) for (Pick p : l) if (own.putIfAbsent(key(p), theme) == null) added++;
+                        Map<String, Boolean> have = new HashMap<>();
+                        for (List<Pick> l : found) {
+                            for (Pick p : l) if (shown(p, kind, have) && own.putIfAbsent(key(p), theme) == null) added++;
+                        }
                     }
                     if (found.isEmpty()) break;
                 }
+                AppLog.w("recommendations: more " + k + ": " + added + " new, " + pagesOf(kind, theme) + " pages"
+                        + (exhausted.contains(k) ? ", the end" : ""));
                 notifyListeners();
             } catch (Exception e) {
                 AppLog.w("recommendations: more " + theme + ": " + e.getMessage());
