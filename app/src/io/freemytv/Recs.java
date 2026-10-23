@@ -911,6 +911,39 @@ final class Recs {
         prune(f.getParentFile());
     }
 
+    /**
+     * A card-sized copy of the pick's backdrop (TMDB's w780) on disk, downloaded now if missing: blocks, so call it off
+     * the UI thread. null when it has no backdrop or the download failed.
+     */
+    File cardImage(Pick p) {
+        if (p == null || p.backdrop == null || p.backdrop.isEmpty()) return null;
+        File f = new File(new File(context.getCacheDir(), "recs-cards"), p.backdrop.replace("/", ""));
+        if (f.exists()) return f;
+        //noinspection ResultOfMethodCallIgnored
+        f.getParentFile().mkdirs();
+        File part = new File(f.getPath() + ".part");
+        try {
+            HttpURLConnection c = (HttpURLConnection) new URL("https://image.tmdb.org/t/p/w780" + p.backdrop).openConnection();
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(15000);
+            try (InputStream in = c.getInputStream(); FileOutputStream out = new FileOutputStream(part)) {
+                byte[] buffer = new byte[16384];
+                int n;
+                while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+            } finally {
+                c.disconnect();
+            }
+            if (!part.renameTo(f)) throw new IOException("couldn't save the image");
+            prune(f.getParentFile());
+            return f;
+        } catch (IOException e) {
+            //noinspection ResultOfMethodCallIgnored
+            part.delete();
+            AppLog.w("card image: " + e.getMessage());
+            return null;
+        }
+    }
+
     /** Reads the photo (≥ the UI's width) and builds the backdrop (Backdrop: cards plus frosted and glass versions). */
     private void loadImage(Pick p) {
         synchronized (images) {

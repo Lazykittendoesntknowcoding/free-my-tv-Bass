@@ -283,6 +283,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private LinearGradient[] overviewScrims = new LinearGradient[0];
     private float[] overviewW = new float[0];
     private TextPaint overviewPaint;
+    private Paint menuPaint;
+    private Recs.Pick menuPick;     // the pick whose menu is open, or null
+    private int menuIndex;
+    private boolean menuOk;         // OK pressed while the menu is open (the press that opened it doesn't count)
+    private final RectF menuRect = new RectF();
     private android.graphics.ColorFilter veilFilter;
     private float veilAmount = -1;
     private int veilColor;
@@ -459,6 +464,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (!running) return;
         running = false;
         cancelReorder(true);
+        closePickMenu();
         handler.removeCallbacks(holdStart);
         okHeld = holdArmed = false;
         Choreographer.getInstance().removeFrameCallback(this);
@@ -479,6 +485,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     void reset(boolean animated) {
         wake();
         cancelReorder(!animated);
+        closePickMenu();
         zone = Z_SHELF;
         shelfIndex = 0;
         sheetOpen = false;
@@ -621,6 +628,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lCardMeta = Ui.text(Ui.medium, 25 * k, L_DIM);
         overviewPaint = new TextPaint(Ui.text(Ui.medium, 23 * k, 0xFFFFFFFF));
         overviewLayouts = new StaticLayout[0];
+        menuPaint = Ui.text(Ui.semibold, 27 * k, L_INK);
+        menuPaint.setTextAlign(Paint.Align.CENTER);
         lTip = Ui.text(Ui.semibold, 25 * k, L_INK);
         lTip.setTextAlign(Paint.Align.CENTER);
         lDate = Ui.text(Ui.semibold, 34 * k, L_DIM);
@@ -1945,6 +1954,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         wake();
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
         if (reordering) return reorderKey(e, down);
+        if (menuPick != null) return pickMenuKey(e, down);
         int code = e.getKeyCode();
         if (down && code != KeyEvent.KEYCODE_DPAD_CENTER && code != KeyEvent.KEYCODE_ENTER
                 && code != KeyEvent.KEYCODE_NUMPAD_ENTER) {
@@ -2223,13 +2233,108 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         return null;
     }
 
-    /** Holding OK on a pick: its trailer in YouTube (the official one, or a search for it). */
-    private void playTrailer() {
+    // MARK: - Holding OK on a pick: a small menu over its card (Watch trailer, Not interested)
+
+    private void openPickMenu() {
         handler.removeCallbacks(holdStart);
         holdArmed = false;
         Recs.Pick p = heldPick();
         if (p == null) return;
-        okHeld = true;
+        okHeld = true;      // the release of this press picks nothing: a new press does
+        menuPick = p;
+        menuIndex = 0;
+        menuOk = false;
+        menuRect.set(zone == Z_HERO ? heroButton : cardRects[cardIndex]);
+        click.open();
+        heroDirty = true;
+        spoken.focusMoved();
+    }
+
+    private void closePickMenu() {
+        if (menuPick == null) return;
+        menuPick = null;
+        heroDirty = true;
+        spoken.focusMoved();
+    }
+
+    private static String[] menuLabels() {
+        return new String[] {Ui.tr("Watch trailer"), Ui.tr("Not interested")};
+    }
+
+    /** Keys while the menu is open: ↑ ↓ choose, OK picks, Back closes (system keys still go to the system). */
+    private boolean pickMenuKey(KeyEvent e, boolean down) {
+        switch (e.getKeyCode()) {
+            case KeyEvent.KEYCODE_DPAD_UP:
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                if (down) {
+                    int next = e.getKeyCode() == KeyEvent.KEYCODE_DPAD_UP ? 0 : 1;
+                    if (next != menuIndex) {
+                        menuIndex = next;
+                        click.move();
+                        heroDirty = true;
+                        spoken.focusMoved();
+                    }
+                }
+                return true;
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+                return true;
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                if (down) {
+                    if (e.getRepeatCount() == 0) menuOk = true;
+                } else {
+                    if (menuOk && !e.isCanceled()) pickFromMenu();
+                    menuOk = false;
+                    okDown = okHeld = false;
+                }
+                return true;
+            case KeyEvent.KEYCODE_BACK:
+                if (!down && !e.isCanceled()) closePickMenu();
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private void pickFromMenu() {
+        Recs.Pick p = menuPick;
+        closePickMenu();
+        if (p == null) return;
+        if (menuIndex == 0) {
+            playTrailer(p);
+        } else {
+            click.open();
+            recs.hide(p);
+            showToast(Ui.trf("You won't see {title} here again.", "title", p.title));
+        }
+    }
+
+    /** The menu's two buttons, stacked in the middle of the card under a dark veil; the chosen one is white. */
+    private void drawPickMenu(Canvas c) {
+        if (menuPick == null) return;
+        float r0 = 18 * k;
+        fill.setShader(null);
+        fill.setColor(0xB3000000);
+        c.drawRoundRect(menuRect, r0, r0, fill);
+        String[] labels = menuLabels();
+        float bh = 64 * k, gap = 16 * k, bw = Math.min(menuRect.width() - 40 * k, 380 * k);
+        float top = menuRect.centerY() - (2 * bh + gap) / 2;
+        for (int i = 0; i < labels.length; i++) {
+            cell.set(menuRect.centerX() - bw / 2, top + i * (bh + gap), menuRect.centerX() + bw / 2, top + i * (bh + gap) + bh);
+            boolean on = i == menuIndex;
+            fill.setColor(on ? 0xFFFFFFFF : 0x40FFFFFF);
+            c.drawRoundRect(cell, bh / 2, bh / 2, fill);
+            menuPaint.setColor(on ? L_INK : 0xFFFFFFFF);
+            fitPaint.set(menuPaint);
+            String label = TextUtils.ellipsize(labels[i], fitPaint, bw - 32 * k, TextUtils.TruncateAt.END).toString();
+            c.drawText(label, cell.centerX(), cell.centerY() + Ui.halfCap(menuPaint), menuPaint);
+        }
+    }
+
+    /** Its trailer in YouTube (the official one, or a search for it). */
+    private void playTrailer(Recs.Pick p) {
         click.open();
         try {
             getContext().startActivity(Recs.trailer(p));
@@ -2247,7 +2352,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void hold() {
         if (sheetOpen) toggleShelf();
         else if (canRemoveWatched()) removeWatched();
-        else if (heldPick() != null) playTrailer();
+        else if (heldPick() != null) openPickMenu();
         else startReorder();
     }
 
@@ -2860,6 +2965,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int i = 0; i < n; i++) if (cardFocus[i].value > 0.02f && (top < 0 || cardFocus[i].value > cardFocus[top].value)) top = i;
         for (int i = 0; i < n; i++) if (i != top) drawCard(c, i);
         if (top >= 0) drawCard(c, top);
+        drawPickMenu(c);
     }
 
     private void drawCard(Canvas c, int i) {
