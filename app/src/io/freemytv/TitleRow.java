@@ -113,11 +113,19 @@ final class TitleRow {
         return moving;
     }
 
-    /** The cards' places (cw × ch, gap apart), slid by the scroll. */
-    void layout(float left, float top, float cw, float ch, float gap) {
-        for (int i = 0; i < rects.length; i++) {
-            float x = left + (i - scroll.value) * (cw + gap);
+    /**
+     * The cards' places (cw × ch, gap apart), slid by the scroll; the cards beside a focused one move `push` aside
+     * (as much as it grows on each side), so it grows without covering them.
+     */
+    void layout(float left, float top, float cw, float ch, float gap, float push) {
+        int n = Math.min(rects.length, items.size());
+        float total = 0, before = 0;
+        for (int i = 0; i < n; i++) total += focus[i].value;
+        for (int i = 0; i < n; i++) {
+            float f = focus[i].value, after = total - before - f;
+            float x = left + (i - scroll.value) * (cw + gap) + push * (before - after);
             rects[i].set(x, top, x + cw, top + ch);
+            before += f;
         }
     }
 

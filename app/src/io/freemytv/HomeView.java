@@ -106,7 +106,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** Cards in a tab: 3 picks, or up to 10 titles to continue watching (about 5 on screen, scrolling sideways). */
     private static final int MAX_CARDS = WatchHistory.MAX, WATCH_VISIBLE = 5;
     /** The picks tabs' rows: one under another (the current one at the top, the next peeking below), ROW_PITCH apart. */
-    private static final float ROW_PITCH = 340, ROW_HEADING = 28, ROW_CARDS = 56, PICK_GROW = 0.10f;
+    private static final float ROW_PITCH = 400, ROW_HEADING = 28, ROW_CARDS = 56, PICK_GROW = 0.30f;
     /** The picks tabs' background comes from the selected card once it has stayed selected this long. */
     private static final long BACKDROP_WAIT_MS = 5000;
     /** The rows' pictures load here (they may download first), apart from the shelf's. */
@@ -2884,7 +2884,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             watchRects[i].set(x, top, x + cw, top + art);
         }
         for (int r = 0; r < pickRows.size(); r++) {
-            pickRows.get(r).layout(left, rowTop(r) + ROW_CARDS * k, cw, art, g);
+            pickRows.get(r).layout(left, rowTop(r) + ROW_CARDS * k, cw, art, g, cw * PICK_GROW / 2);
         }
     }
 
@@ -3166,7 +3166,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         Recs.Pick p = row.items.get(i);
         float v = row.focus[i].value, f = Ui.clamp(v), s = 1 + PICK_GROW * v;
         float bw = base.width(), bh = base.height(), r0 = 16 * k;
-        float cx = base.centerX(), cy = base.centerY() - 8 * k * v;
+        // It grows from its top edge (the row's heading stays clear) and rises a little.
+        float cx = base.centerX(), cy = base.centerY() + bh * (s - 1) / 2 - 8 * k * v;
         cell.set(cx - bw * s / 2, cy - bh * s / 2, cx + bw * s / 2, cy + bh * s / 2);
         float r = r0 * s;
         c.save();
@@ -3230,11 +3231,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float x = cell.left, textW = Math.min(bw * 2, CONTENT_R * k - x);
         fitPaint.set(lCardTitle);
         fitPaint.setAlpha(Math.round(fitPaint.getAlpha() * label));
-        c.drawText(TextUtils.ellipsize(p.title, fitPaint, textW, TextUtils.TruncateAt.END).toString(), x, base.bottom + 50 * k, fitPaint);
+        c.drawText(TextUtils.ellipsize(p.title, fitPaint, textW, TextUtils.TruncateAt.END).toString(), x, cell.bottom + 50 * k, fitPaint);
         if (p.meta != null && !p.meta.isEmpty()) {
             fitPaint.set(lCardMeta);
             fitPaint.setAlpha(Math.round(fitPaint.getAlpha() * label));
-            c.drawText(TextUtils.ellipsize(p.meta, fitPaint, textW, TextUtils.TruncateAt.END).toString(), x, base.bottom + 84 * k, fitPaint);
+            c.drawText(TextUtils.ellipsize(p.meta, fitPaint, textW, TextUtils.TruncateAt.END).toString(), x, cell.bottom + 84 * k, fitPaint);
         }
     }
 
