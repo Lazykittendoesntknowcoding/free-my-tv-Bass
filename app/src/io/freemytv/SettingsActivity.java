@@ -606,7 +606,7 @@ public class SettingsActivity extends Activity {
                     if (down && screen == SHELF_EDIT) {
                         moveShelfApp(e.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
                         invalidate();
-                    } else if (down && screen == CONTENT_EDIT) {
+                    } else if (down && (screen == CONTENT_EDIT || screen == CONTENT_ADD)) {
                         moveContentRow(e.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
                         invalidate();
                     } else if (down && (screen == HOME_SETTINGS || screen == REMOTE_KEYS)) {
@@ -865,18 +865,17 @@ public class SettingsActivity extends Activity {
 
         private static final String[] CONTENT_TABS_IDS = {"all", "movie", "tv"};
         private String contentTab = "all", contentGroup = "";
-        // The list: {"row", id} or {"group", group}. The tab's rows, then the groups to add more from.
+        // The list: {"row", id} or {"group", group}. The tab's rows, then the groups to add more from; in a group, its
+        // rows the tab shows (in order), then the others.
         private final List<String[]> contentItems = new ArrayList<>();
         private final List<String> contentOn = new ArrayList<>();     // the tab's rows, in order
-        private final List<String> contentKept = new ArrayList<>();   // turned off on this visit: listed to tick again
 
         private static String tabName(String tab) {
             return tab.equals("movie") ? Ui.tr("Movies") : tab.equals("tv") ? Ui.tr("Shows") : Ui.tr("Explore");
         }
 
-        /** The tab's list: its rows (in order), the ones just turned off, then the groups. */
+        /** The tab's list: its rows (in order), then the groups. */
         private void openContent(String tab) {
-            if (screen == CONTENT_TABS) contentKept.clear();
             contentTab = tab;
             buildContent();
             pickScroll = 0;
@@ -889,19 +888,24 @@ public class SettingsActivity extends Activity {
             contentOn.addAll(Recs.rowsOn(contentTab));
             contentItems.clear();
             for (String id : contentOn) contentItems.add(new String[] {"row", id});
-            for (String id : contentKept) if (!contentOn.contains(id)) contentItems.add(new String[] {"row", id});
             for (String g : Recs.GROUPS) contentItems.add(new String[] {"group", g});
         }
 
         private void openGroup(String group) {
             contentGroup = group;
-            contentOn.clear();
-            contentOn.addAll(Recs.rowsOn(contentTab));
-            contentItems.clear();
-            for (String id : Recs.rowChoices(contentTab, group)) contentItems.add(new String[] {"row", id});
+            buildGroup();
             pickScroll = 0;
             focus = 0;
             screen = CONTENT_ADD;
+        }
+
+        private void buildGroup() {
+            contentOn.clear();
+            contentOn.addAll(Recs.rowsOn(contentTab));
+            List<String> choices = Recs.rowChoices(contentTab, contentGroup);
+            contentItems.clear();
+            for (String id : contentOn) if (choices.contains(id)) contentItems.add(new String[] {"row", id});
+            for (String id : choices) if (!contentOn.contains(id)) contentItems.add(new String[] {"row", id});
         }
 
         /** Scrolls item i into view and focuses it. */
@@ -915,16 +919,11 @@ public class SettingsActivity extends Activity {
 
         /** The same list after a change, the focus still on that row. */
         private void refreshContent(String id) {
-            if (screen == CONTENT_EDIT) {
-                buildContent();
-            } else {
-                contentOn.clear();
-                contentOn.addAll(Recs.rowsOn(contentTab));
-            }
+            if (screen == CONTENT_EDIT) buildContent(); else buildGroup();
             for (int i = 0; i < contentItems.size(); i++) if (contentItems.get(i)[1].equals(id)) showContentItem(i);
         }
 
-        /** OK: a group opens (true: another screen); a row is ticked on or off. */
+        /** OK: a group opens (true: another screen); a row is ticked on or off (off, it goes back to its group). */
         private boolean activateContent() {
             String[] item = contentItems.get(pickScroll + focus);
             if (item[0].equals("group")) {
@@ -933,20 +932,21 @@ public class SettingsActivity extends Activity {
             }
             boolean on = contentOn.contains(item[1]);
             Recs.get(getContext()).setRowOn(contentTab, item[1], !on);
-            if (on) {
-                if (!contentKept.contains(item[1])) contentKept.add(item[1]);
-            } else {
-                contentKept.remove(item[1]);
-            }
+            int at = pickScroll + focus;
             refreshContent(item[1]);
+            // Off in the tab's list: the row leaves it, the focus stays where it was.
+            if (on && screen == CONTENT_EDIT) showContentItem(Math.min(at, contentItems.size() - 1));
             return false;
         }
 
-        /** ← → : the focused row one place earlier or later on the tab. */
+        /** ← → : the focused row swaps places with the shown row above or below it in the list. */
         private void moveContentRow(int dir) {
-            String[] item = contentItems.get(pickScroll + focus);
+            int at = pickScroll + focus, to = at + dir;
+            String[] item = contentItems.get(at);
             if (!item[0].equals("row") || !contentOn.contains(item[1])) return;
-            Recs.get(getContext()).moveRow(contentTab, item[1], dir);
+            if (to < 0 || to >= contentItems.size() || !contentItems.get(to)[0].equals("row")
+                    || !contentOn.contains(contentItems.get(to)[1])) return;
+            Recs.get(getContext()).swapRows(contentTab, item[1], contentItems.get(to)[1]);
             refreshContent(item[1]);
         }
 
@@ -963,7 +963,6 @@ public class SettingsActivity extends Activity {
                 return Ui.trf("{n} on", "n", n);
             }
             int place = contentOn.indexOf(item[1]);
-            if (screen == CONTENT_ADD) return place >= 0 ? Ui.tr("On") : Ui.tr("Off");
             return place >= 0 ? "#" + (place + 1) : Ui.tr("shelf|Off");
         }
 
@@ -1006,8 +1005,7 @@ public class SettingsActivity extends Activity {
             Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
             float hy = (LIST_TOP + 20 + rows * (LIST_ROW_H + LIST_ROW_GAP) + 36) * k;
             String text = screen == CONTENT_TABS ? Ui.tr("Choose the rows each tab shows.")
-                    : screen == CONTENT_EDIT ? Ui.tr("OK turns a row on or off. ← → change the order.")
-                    : Ui.tr("OK turns a row on or off. New rows go at the end.");
+                    : Ui.tr("OK turns a row on or off. ← → change the order.");
             if (screen != CONTENT_TABS) text = (pickScroll + focus + 1) + " / " + contentItems.size() + "  ·  " + text;
             c.drawText(text, LIST_X * k + 30 * k, hy, hint);
         }
