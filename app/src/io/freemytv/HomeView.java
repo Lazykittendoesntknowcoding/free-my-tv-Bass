@@ -183,6 +183,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final Map<String, Bitmap> watchArt = new HashMap<>();
     private final java.util.Set<String> watchArtLoading = new java.util.HashSet<>();
     private volatile java.util.Set<String> watchWanted = java.util.Collections.emptySet();   // the window's titles
+    private final java.util.Set<String> watchNoArt = new java.util.HashSet<>();   // none saved or unreadable: the app's name shows
+    private final java.util.Set<String> watchArtFailed = new java.util.HashSet<>();   // pictures (ids) that wouldn't decode
     private final List<HomeApps.Item> lightButtons = new ArrayList<>();
     private Paint lTitle, lTab, lTabOn, lCardTitle, lCardMeta, lTip, lDate, lClock, lWeather;
     private Shader lightGradient;
@@ -3799,6 +3801,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         final java.util.Set<String> keep = new java.util.HashSet<>();
         for (Recs.Pick p : window) keep.add(p.watchKey);
         watchWanted = keep;
+        watchNoArt.clear();     // looked at again: a title's picture may have been saved since
         // Titles still in the window keep their pictures, so a card keeps its picture while the list is read again (it
         // changes every 30 s while something plays).
         watchArt.keySet().removeIf(id -> !keep.contains(artTitle(id)));
@@ -3806,7 +3809,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             final String key = p.watchKey;
             final java.io.File f = WatchHistory.art(c, key);
             final String id = key + "|" + f.lastModified() + "|" + cw;
-            if (watchArt.containsKey(id) || watchArtLoading.contains(id) || !f.exists()) continue;
+            if (!f.exists() || watchArtFailed.contains(id)) watchNoArt.add(key);
+            if (watchArt.containsKey(id) || watchArtLoading.contains(id) || watchNoArt.contains(key)) continue;
             watchArtLoading.add(id);
             LOADER.execute(() -> {
                 Bitmap cut = null;
@@ -3822,10 +3826,17 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 final Bitmap done = cut;
                 handler.post(() -> {
                     watchArtLoading.remove(id);
-                    if (done == null || !watchWanted.contains(key)) return;   // scrolled away meanwhile
+                    if (!watchWanted.contains(key)) return;   // scrolled away meanwhile
+                    if (done == null) {
+                        watchArtFailed.add(id);
+                        watchNoArt.add(key);
+                        heroDirty = true;
+                        return;
+                    }
                     // One picture per title: an older one (other size, other episode) makes way.
                     watchArt.keySet().removeIf(old -> old.startsWith(key + "|"));
                     watchArt.put(id, done);
+                    watchNoArt.remove(key);
                     heroDirty = true;
                 });
             });
@@ -3836,6 +3847,22 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static String artTitle(String id) {
         int last = id.lastIndexOf('|');
         return id.substring(0, id.lastIndexOf('|', last - 1));
+    }
+
+    /** The title has no picture to wait for (none saved, or unreadable): its card shows the app's name instead. */
+    private boolean watchArtNone(Recs.Pick p) {
+        return watchNoArt.contains(p.watchKey);
+    }
+
+    /** The card's picture is in, or it has none to wait for: the focus may move onto it. */
+    private boolean cardReady(int i) {
+        if (i < 0 || i >= cards.size()) return true;
+        Recs.Pick p = cards.get(i);
+        if (tab == WATCH_TAB) {
+            Bitmap img = watchArtFor(p.watchKey);
+            return img != null || watchArtNone(p);
+        }
+        return pickRows.isEmpty() || pickRows.get(rowIndex).ready(p);
     }
 
     private Bitmap watchArtFor(String key) {
@@ -3852,12 +3879,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float cx = base.centerX(), cy = base.centerY() - 6 * k * v;
         cell.set(cx - bw * s / 2, cy - bh * s / 2, cx + bw * s / 2, cy + bh * s / 2);
         float r = r0 * s;
+        Bitmap img = watchArtFor(p.watchKey);
+        boolean none = img == null || img.isRecycled();
+        if (none && !watchArtNone(p)) return;   // its picture is on its way: blank space, no placeholder (the focus waits)
         tmp.set(cell);
         tmp.offset(0, (8 + 12 * f) * k);
         shadowDeep.setColor(Ui.alpha(0xFF000000, tone(0.12f, 0.3f) + tone(0.2f, 0.28f) * f));
         shadows.draw(c, tmp, r, DEEP_BLUR * k, shadowDeep);
-        Bitmap img = watchArtFor(p.watchKey);
-        if (img != null && !img.isRecycled()) {
+        if (!none) {
             roundImage(c, img, cell, r);
         } else {
             fill.setShader(null);
@@ -4029,12 +4058,18 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                         if (dx < 0 && tab != WATCH_TAB) openRowMenu();
                         return true;
                     }
+                    if (!cardReady(next)) return true;   // its picture is still loading: the focus waits for it
                     cardIndex = next;
                 } else if (tab != WATCH_TAB && rowIndex + dy >= 0 && rowIndex + dy < pickRows.size()) {
                     // The row above or below: the card nearest the same place on screen.
                     float x = cardRects[cardIndex].centerX();
+                    int from = rowIndex;
                     useRow(rowIndex + dy);
                     cardIndex = nearest(cardRects, cards.size(), x);
+                    if (!cardReady(cardIndex)) {
+                        useRow(from);       // that row's picture is still loading: the focus stays
+                        return true;
+                    }
                 } else if (dy < 0) {
                     zone = Z_TOP;
                     topIndex = tab;     // as on Apple TV: moving up to the tabs focuses the selected tab

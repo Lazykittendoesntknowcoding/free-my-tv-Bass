@@ -44,6 +44,7 @@ final class TitleRow {
     private final Runnable changed;
     private final Map<String, Bitmap> art = new HashMap<>();   // by Recs.key, only inside the window
     private final Set<String> loading = new HashSet<>();
+    private final Set<String> failed = new HashSet<>();     // no picture to be had: the card can be selected anyway
     private volatile Set<String> wanted = Collections.emptySet();
     private int width, height;
 
@@ -149,6 +150,12 @@ final class TitleRow {
         return art.get(Recs.key(p));
     }
 
+    /** Its picture is in (or there's none to wait for): the selection may move onto it. */
+    boolean ready(Recs.Pick p) {
+        String key = Recs.key(p);
+        return art.containsKey(key) || failed.contains(key);
+    }
+
     /**
      * Keeps the pictures of the cards on screen and `around` cards on each side of them, at w × h, and loads what's
      * missing: the ones on screen first, then the ones ahead, then the ones behind. around < 0: none (off screen).
@@ -173,12 +180,17 @@ final class TitleRow {
         art.keySet().retainAll(keep);
         for (final Recs.Pick p : order) {
             final String key = Recs.key(p);
-            if (art.containsKey(key) || !loading.add(key)) continue;
+            if (art.containsKey(key) || failed.contains(key) || !loading.add(key)) continue;
             loader.execute(() -> {
                 Bitmap cut = wanted.contains(key) ? cut(source.file(p), w, h) : null;   // scrolled away: skipped
                 main.post(() -> {
                     loading.remove(key);
-                    if (cut == null || !wanted.contains(key) || w != width || h != height) return;
+                    if (!wanted.contains(key) || w != width || h != height) return;
+                    if (cut == null) {
+                        failed.add(key);
+                        changed.run();
+                        return;
+                    }
                     art.put(key, cut);
                     changed.run();
                 });
@@ -189,6 +201,7 @@ final class TitleRow {
     void clear() {
         wanted = Collections.emptySet();
         art.clear();
+        failed.clear();
     }
 
     /** The center of the picture at w × h, decoded no bigger than needed, in GPU memory. */
