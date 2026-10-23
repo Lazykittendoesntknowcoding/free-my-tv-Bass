@@ -277,12 +277,9 @@ final class HomeApps {
         return it;
     }
 
-    /** For the bottom drawer: live TV and every HDMI input (the ones with no device are shown dimmed). */
+    /** For the bottom drawer: every HDMI input (the ones with no device are shown dimmed). Live TV has its own top button. */
     static List<Item> allInputs(Context c) {
-        List<Item> items = new ArrayList<>();
-        if (liveTv(c) != null) items.add(shortcut(LIVE_TV, "live", Ui.tr("Live TV"), "tv"));
-        items.addAll(inputs(c, true));
-        return items;
+        return inputs(c, true);
     }
 
     private static List<Item> inputs(Context c) {
