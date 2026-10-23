@@ -103,7 +103,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** Continue watching, then the picks: Explore, Movies, Shows. */
     private static final int TABS = 4, WATCH_TAB = 0;
     private static final String[] TAB_KIND = {null, null, "movie", "tv"};
-    /** Cards in a tab: 3 picks, or up to 10 titles to continue watching (about 5 on screen, scrolling sideways). */
+    /** Cards in a tab: 3 picks, or up to 20 titles to continue watching (about 5 on screen, scrolling sideways). */
     private static final int MAX_CARDS = WatchHistory.MAX, WATCH_VISIBLE = 5;
     /** The picks tabs' rows: one under another (the current one at the top, the next peeking below), ROW_PITCH apart. */
     private static final float ROW_PITCH = 420, ROW_HEADING = 28, ROW_CARDS = 56, PICK_GROW = 0.40f;
