@@ -21,12 +21,12 @@ import java.util.concurrent.Executor;
 
 /**
  * One sideways row of titles on the picks tabs ("Trending now"...): its cards, the selected one, how far it has slid,
- * and the pictures of only the cards around the screen. In the focused row that is 15: the 5 on screen, the 5 just
- * scrolled past and the 5 coming next; moving along loads the next ones in the background before they slide in and
- * lets go of the ones left behind. Each picture is cut once to the focused card's size and kept in GPU memory.
+ * and the pictures of only the cards around the screen: 7, the 5 on screen and one on each side. Moving along loads
+ * the next one in the background before it slides in and lets go of the ones left behind. Each picture is cut once to
+ * the focused card's size and kept in GPU memory.
  */
 final class TitleRow {
-    static final int VISIBLE = 5, AROUND = 5, MAX = 20;
+    static final int VISIBLE = 5, AROUND = 1;
 
     /** Where a title's picture is on disk, downloading it if needed (called on the loader thread; null: none). */
     interface Source { File file(Recs.Pick p); }
@@ -53,7 +53,6 @@ final class TitleRow {
 
     /** New titles: the selection stays on the same title when it's still there; returns true if anything changed. */
     boolean set(String heading, List<Recs.Pick> list) {
-        if (list.size() > MAX) list = new ArrayList<>(list.subList(0, MAX));
         boolean same = list.size() == items.size();
         for (int i = 0; same && i < list.size(); i++) same = Recs.key(list.get(i)).equals(Recs.key(items.get(i)));
         title = heading == null ? "" : heading;

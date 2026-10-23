@@ -575,7 +575,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         int width = MeasureSpec.getSize(widthSpec), height = MeasureSpec.getSize(heightSpec);
         float kk = width / 1920f;
         measure(sky, width, height);
-        measure(heroLayer, width, Math.round(790 * kk));
+        measure(heroLayer, width, height);   // the whole height: the picks' rows run down to the foot
         measure(status, Math.round(1160 * kk), Math.round(240 * kk));
         // Sized to what they draw (the glass and its shadow; the grown tiles and their shadows): smaller layers are
         // cheaper for the GPU to composite on every frame of the drawer animation.
@@ -2892,21 +2892,23 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** How many cards the tab can show. */
     private int cardSlots() {
-        return tab == WATCH_TAB ? MAX_CARDS : TitleRow.MAX;
+        return tab == WATCH_TAB ? MAX_CARDS : Integer.MAX_VALUE;
     }
 
     /**
-     * The rows' pictures: the current row's 15 around the screen, the 5 on screen of the row above it and of the two
-     * below (on screen with the dock away; moving up or down shows them ready), none for the others. Cut at the
-     * focused card's size, so it stays sharp.
+     * The rows' pictures: 7 in each row on screen (the 5 shown and one on each side) and in the row just above and
+     * just below them, so moving any way shows them ready; none for the others. Cut at the focused card's size, so it
+     * stays sharp.
      */
     private void loadPickArt() {
         if (tab == WATCH_TAB || pickRows.isEmpty()) return;
         RectF r0 = pickRows.get(0).rects.length > 0 ? pickRows.get(0).rects[0] : null;
         if (r0 == null) return;
         int w = Math.round(r0.width() * (1 + PICK_GROW)), h = Math.round(r0.height() * (1 + PICK_GROW));
+        // Rows whose cards start above the screen's foot once the slide ends (the current one is at the top).
+        int below = (int) Math.ceil((h / k - L_CARDS_TOP - ROW_CARDS) / ROW_PITCH) - 1;
         for (int r = 0; r < pickRows.size(); r++) {
-            int around = r == rowIndex ? TitleRow.AROUND : r - rowIndex >= -1 && r - rowIndex <= 2 ? 0 : -1;
+            int around = r - rowIndex >= -1 && r - rowIndex <= below + 1 ? TitleRow.AROUND : -1;
             pickRows.get(r).load(around, w, h, recs::cardImage);
         }
     }
@@ -3187,26 +3189,27 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             }
         }
         if (f > 0.01f) {
-            if (lightSheens.length != TitleRow.MAX) {
-                lightSheens = new LinearGradient[TitleRow.MAX];
-                lightRims = new LinearGradient[TitleRow.MAX];
-                lightShaderW = new float[TitleRow.MAX];
+            // Every card has the same size: one sheen and one rim serve them all.
+            if (lightSheens.length != 1) {
+                lightSheens = new LinearGradient[1];
+                lightRims = new LinearGradient[1];
+                lightShaderW = new float[1];
             }
-            if (lightSheens[i] == null || lightShaderW[i] != bw) {
-                lightSheens[i] = new LinearGradient(-bw / 2, -bh / 2, 0, bh / 2, 0x38FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP);
-                lightRims[i] = new LinearGradient(0, -bh / 2, 0, bh / 2, 0xE6FFFFFF, 0x59FFFFFF, Shader.TileMode.CLAMP);
-                lightShaderW[i] = bw;
+            if (lightSheens[0] == null || lightShaderW[0] != bw) {
+                lightSheens[0] = new LinearGradient(-bw / 2, -bh / 2, 0, bh / 2, 0x38FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP);
+                lightRims[0] = new LinearGradient(0, -bh / 2, 0, bh / 2, 0xE6FFFFFF, 0x59FFFFFF, Shader.TileMode.CLAMP);
+                lightShaderW[0] = bw;
             }
             int alpha = Math.round(255 * f);
             c.save();
             c.translate(cx, cy);
             c.scale(s, s);
             tmp.set(-bw / 2, -bh / 2, bw / 2, bh / 2);
-            sheen.setShader(lightSheens[i]);
+            sheen.setShader(lightSheens[0]);
             sheen.setAlpha(alpha);
             c.drawRoundRect(tmp, r0, r0, sheen);
             sheen.setAlpha(255);
-            rim.setShader(lightRims[i]);
+            rim.setShader(lightRims[0]);
             rim.setAlpha(alpha);
             rim.setStrokeWidth(2.5f * k / s);
             c.drawRoundRect(tmp, r0, r0, rim);
@@ -3215,7 +3218,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             c.restore();
         }
         if (f > 0.01f && img != null && p.overview != null && !p.overview.isEmpty()) {
-            drawOverview(c, rowAt * TitleRow.MAX + i, p.overview, cx, cy, s, bw, bh, r0, f);
+            drawOverview(c, rowAt * 2 + (i & 1), p.overview, cx, cy, s, bw, bh, r0, f);
         }
         float label = Ui.clamp(row.label[i].value);
         if (label < 0.01f) return;
@@ -3233,10 +3236,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /**
      * What the title is about, over the bottom of the focused card on a dark fade (laid out once per text and size, in
-     * slot i: row × TitleRow.MAX + card, so two rows' cards don't take each other's place while the focus moves).
+     * slot i: row × 2 + the card's parity, so neighbouring cards, in a row or one above the other, don't take each
+     * other's place while the focus moves).
      */
     private void drawOverview(Canvas c, int i, String text, float cx, float cy, float s, float bw, float bh, float r0, float f) {
-        int slots = Math.max(1, pickRows.size()) * TitleRow.MAX;
+        int slots = Math.max(1, pickRows.size()) * 2;
         if (overviewLayouts.length < slots) {
             overviewLayouts = new StaticLayout[slots];
             overviewTexts = new String[slots];
