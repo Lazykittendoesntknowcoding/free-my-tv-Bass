@@ -42,7 +42,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.WeakHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
@@ -290,7 +289,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final Paint shadowDeep = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint halo = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Shadows shadows = new Shadows();
-    private final Map<Bitmap, BitmapShader> imageShaders = new WeakHashMap<>();
+    // Android 8 to 11: one shader per picture on screen. Not a WeakHashMap: each shader holds its bitmap, so no entry
+    // would ever go and every card picture scrolled past stayed in memory. The least recently drawn go instead.
+    private final Map<Bitmap, BitmapShader> imageShaders = new java.util.LinkedHashMap<Bitmap, BitmapShader>(128, 0.75f, true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<Bitmap, BitmapShader> eldest) { return size() > 96; }
+    };
     private final Matrix imageMatrix = new Matrix();
     private final Paint imageFill = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final Paint border = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -529,6 +532,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         handler.removeCallbacks(tick);
         handler.removeCallbacks(newsTurn);
         handler.removeCallbacks(reloadSoon);
+        handler.removeCallbacks(picksSoon);
         data.removeListener(this);
         recs.removeListener(this);
         if (tvInputs != null) tvInputs.unregisterCallback(inputCallback);
@@ -602,9 +606,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     @Override public void onRecs() {
         wake();
-        updatePicks();
+        // Recs often notifies several times in a row (details, a page, a picture): the rows are rebuilt once for them.
+        handler.removeCallbacks(picksSoon);
+        handler.post(picksSoon);
         if (preview.open) preview.refresh();     // the pick's details: where Play opens it
     }
+
+    private final Runnable picksSoon = () -> {
+        if (running) updatePicks();
+    };
 
     private void invalidateAll() {
         for (View v : new View[] {sky, heroLayer, status, platter, tiles, drawerLayer}) v.invalidate();
@@ -2084,6 +2094,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private void appsChanged() {
         appsStale = true;
+        watchApps.clear();
         if (running) reloadSoon();
     }
 
@@ -3720,7 +3731,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         PackageManager pm = c.getPackageManager();
         List<Recs.Pick> list = new ArrayList<>();
         for (WatchHistory.Entry e : WatchHistory.load(c)) {
-            if (HomeApps.launchIntent(pm, e.pkg) == null) continue;   // uninstalled since
+            String app = watchApp(pm, e.pkg);
+            if (app == null) continue;   // uninstalled since
             Recs.Pick p = new Recs.Pick();
             p.kind = "watch";
             p.id = e.key.hashCode();
@@ -3728,7 +3740,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             p.title = e.title;
             p.meta = e.subtitle;
             p.pkg = e.pkg;
-            p.app = appLabel(pm, e.pkg);
+            p.app = app;
             android.content.Intent play = WatchHistory.playIntent(e);
             p.link = play == null ? null : play.getDataString();
             p.progress = e.progress();
@@ -3746,6 +3758,19 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         heroDirty = true;
         spoken.focusMoved();
     }
+
+    /**
+     * The app's name, or null when it can't be opened (uninstalled): looked up once per app until apps change, since
+     * the list is read again on the Home press after watching (three system calls per title, on the UI thread).
+     */
+    private String watchApp(PackageManager pm, String pkg) {
+        if (watchApps.containsKey(pkg)) return watchApps.get(pkg);
+        String app = HomeApps.launchIntent(pm, pkg) == null ? null : appLabel(pm, pkg);
+        watchApps.put(pkg, app);
+        return app;
+    }
+
+    private final Map<String, String> watchApps = new HashMap<>();
 
     private static String appLabel(PackageManager pm, String pkg) {
         try {

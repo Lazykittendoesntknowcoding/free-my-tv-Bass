@@ -25,6 +25,8 @@ final class Backdrop {
     /** The UI's size against 1920×1080 (at most 1): nothing is built bigger than the screen can show. */
     private static final float UI_SCALE = uiScale();
     static final int W = ui(1920), H = ui(1080), FW = 192, FH = 108, GW = 480, GH = 270;
+    /** What the light design builds from (it has no full photo). */
+    static final int LIGHT_W = W / 2, LIGHT_H = H / 2;
 
     private static float uiScale() {
         android.util.DisplayMetrics m = android.content.res.Resources.getSystem().getDisplayMetrics();
@@ -56,12 +58,15 @@ final class Backdrop {
     }
 
     static Backdrop make(Bitmap src, boolean forLight) {
-        Bitmap out = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888);
+        // The light design keeps only the blurred versions (480 wide at most): half the screen is all they need, and
+        // the halving in reduce() would bring a full-screen copy down to that first anyway (8 MB less on 1080p).
+        int bw = forLight ? LIGHT_W : W, bh = forLight ? LIGHT_H : H;
+        Bitmap out = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(out);
         Paint photo = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
-        float scale = Math.max((float) W / src.getWidth(), (float) H / src.getHeight());
+        float scale = Math.max((float) bw / src.getWidth(), (float) bh / src.getHeight());
         float sw = src.getWidth() * scale, sh = src.getHeight() * scale;
-        c.drawBitmap(src, null, new RectF((W - sw) / 2, (H - sh) / 2, (W + sw) / 2, (H + sh) / 2), photo);
+        c.drawBitmap(src, null, new RectF((bw - sw) / 2, (bh - sh) / 2, (bw + sw) / 2, (bh + sh) / 2), photo);
         src.recycle();
         if (forLight) {
             // Light design: everything comes from the photo without scrims.

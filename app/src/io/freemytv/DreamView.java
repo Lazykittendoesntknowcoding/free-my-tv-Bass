@@ -43,6 +43,8 @@ import java.util.concurrent.Executors;
  */
 final class DreamView extends View implements Choreographer.FrameCallback, HomeData.Listener {
     private static final long SKY_STEP_MS = 50;
+    /** A photo stays still but for the drift (about 0.2 px a second): redrawn twice a second, not 20 times. */
+    private static final long PHOTO_STEP_MS = 500;
     private static final double DRIFT_PERIOD_S = 600;
     // Layout in a 1920×1080 space (k = width / 1920).
     private static final float MARGIN = 96, RIGHT = 1824;
@@ -192,7 +194,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
         long up = clockNow();
         if (fadeAt >= 0) {
             invalidate();   // a crossfade: every frame
-        } else if (lastSky < 0 || up - lastSky >= SKY_STEP_MS) {
+        } else if (lastSky < 0 || up - lastSky >= (shown == null ? SKY_STEP_MS : PHOTO_STEP_MS)) {
             lastSky = up;
             if (shown == null) {
                 HomeData.Weather wx = data.weather;

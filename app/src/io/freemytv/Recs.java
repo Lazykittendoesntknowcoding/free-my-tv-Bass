@@ -58,6 +58,9 @@ final class Recs {
         // Continue watching (kind "watch"): the history's key and how far in (0 to 1).
         String watchKey;
         float progress;
+        // key() and the lowercased title, made once (the rows are rebuilt often and look at every title each time)
+        private String key, keyKind, folded, foldedFrom;
+        private int keyId;
     }
 
     interface Listener { void onRecs(); }
@@ -68,8 +71,13 @@ final class Recs {
     /** TMDB's Animation genre (movies and shows: cartoons and anime), left out with hide_animation=true. */
     private static final int ANIMATION = 16;
     private static final long LIST_EVERY = 6 * 3600_000L;
-    /** Images kept on disk (each kind: the cards' and the big backgrounds'). */
+    /** Big backgrounds kept on disk. */
     private static final int MAX_PICKS = 60;
+    /**
+     * Card pictures kept on disk (w780, about 80 KB each: some 25 MB). One tab keeps 30 to 40 ready and browsing it
+     * passes many more, so with fewer they were downloaded again on every tab switch.
+     */
+    private static final int MAX_CARDS = 300;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
     private static final int CACHE_VERSION = 6;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
@@ -252,7 +260,7 @@ final class Recs {
     private boolean shown(Pick p, String kind, Map<String, Boolean> have) {
         if (kind != null && !kind.equals(p.kind)) return false;
         if (p.detailed && (p.pkg == null || !have.computeIfAbsent(p.pkg, this::installed))) return false;
-        return !hidden().contains(key(p)) && !watched(p.title);
+        return !hidden().contains(key(p)) && !watched(p);
     }
 
     static final class Row {
@@ -657,12 +665,18 @@ final class Recs {
         notifyListeners();
     }
 
-    private long watchedStamp = -1;
+    private long watchedStamp = -1, watchedCheckedAt = -1;
     private Set<String> watchedTitles = new HashSet<>();
 
     /** Being watched already (in Continue watching): no need to recommend it. */
-    private synchronized boolean watched(String title) {
-        long stamp = WatchHistory.stamp(context);
+    private synchronized boolean watched(Pick p) {
+        // The history file is looked at once per rebuild (at most every 500 ms), not once per title.
+        long up = android.os.SystemClock.uptimeMillis();
+        long stamp = watchedStamp;
+        if (watchedCheckedAt < 0 || up - watchedCheckedAt >= 500) {
+            watchedCheckedAt = up;
+            stamp = WatchHistory.stamp(context);
+        }
         if (stamp != watchedStamp) {
             watchedStamp = stamp;
             Set<String> titles = new HashSet<>();
@@ -673,7 +687,12 @@ final class Recs {
             }
             watchedTitles = titles;
         }
-        return title != null && watchedTitles.contains(title.trim().toLowerCase(Locale.ROOT));
+        if (p.title == null) return false;
+        if (p.folded == null || p.foldedFrom != p.title) {
+            p.folded = p.title.trim().toLowerCase(Locale.ROOT);
+            p.foldedFrom = p.title;
+        }
+        return watchedTitles.contains(p.folded);
     }
 
     // MARK: - Trailer
@@ -876,7 +895,12 @@ final class Recs {
 
     /** Movies and shows are numbered separately on TMDB: a pick is identified by type + number. */
     static String key(Pick p) {
-        return p.kind + ":" + p.id;
+        if (p.key == null || p.keyKind != p.kind || p.keyId != p.id) {
+            p.key = p.kind + ":" + p.id;
+            p.keyKind = p.kind;
+            p.keyId = p.id;
+        }
+        return p.key;
     }
 
     private void notifyListeners() {
@@ -1644,7 +1668,7 @@ final class Recs {
             c.disconnect();
         }
         if (!part.renameTo(f)) throw new IOException("couldn't save the image");
-        prune(f.getParentFile());
+        prune(f.getParentFile(), MAX_PICKS);
     }
 
     /**
@@ -1671,7 +1695,7 @@ final class Recs {
                 c.disconnect();
             }
             if (!part.renameTo(f)) throw new IOException("couldn't save the image");
-            prune(f.getParentFile());
+            prune(f.getParentFile(), MAX_CARDS);
             return f;
         } catch (IOException e) {
             //noinspection ResultOfMethodCallIgnored
@@ -1692,13 +1716,14 @@ final class Recs {
             BitmapFactory.Options bounds = new BitmapFactory.Options();
             bounds.inJustDecodeBounds = true;
             BitmapFactory.decodeFile(f.getPath(), bounds);
+            boolean forLight = light;
+            int need = forLight ? Backdrop.LIGHT_W : Backdrop.W;
             BitmapFactory.Options opts = new BitmapFactory.Options();
             opts.inSampleSize = 1;
-            while (bounds.outWidth / (opts.inSampleSize * 2) >= Backdrop.W) opts.inSampleSize *= 2;
+            while (bounds.outWidth / (opts.inSampleSize * 2) >= need) opts.inSampleSize *= 2;
             Bitmap b = BitmapFactory.decodeFile(f.getPath(), opts);
             if (b == null) throw new IOException("unreadable image");
-            AppLog.w("backdrop \u201c" + p.title + "\u201d: " + bounds.outWidth + "×" + bounds.outHeight + " → " + Backdrop.W + "×" + Backdrop.H);
-            boolean forLight = light;
+            AppLog.w("backdrop \u201c" + p.title + "\u201d: " + bounds.outWidth + "×" + bounds.outHeight + " → " + need + " wide");
             Backdrop backdrop = Backdrop.make(b, forLight);
             if (forLight != light) return;   // the design changed midway: this one is stale
             synchronized (images) {
@@ -1722,7 +1747,7 @@ final class Recs {
         }
     }
 
-    private static void prune(File dir) {
+    private static void prune(File dir, int max) {
         // A download cut off when the system stopped the app leaves its .part behind.
         long stale = System.currentTimeMillis() - 10 * 60_000L;
         File[] parts = dir.listFiles((d, name) -> name.endsWith(".part"));
@@ -1731,9 +1756,9 @@ final class Recs {
             if (parts[i].lastModified() < stale) parts[i].delete();
         }
         File[] files = dir.listFiles((d, name) -> !name.endsWith(".part"));
-        if (files == null || files.length <= MAX_PICKS) return;
+        if (files == null || files.length <= max) return;
         Arrays.sort(files, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
-        for (int i = 0; i < files.length - MAX_PICKS; i++) {
+        for (int i = 0; i < files.length - max; i++) {
             //noinspection ResultOfMethodCallIgnored
             files[i].delete();
         }
