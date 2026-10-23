@@ -325,7 +325,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final String[] newsTitle = new String[NEWS_ROWS], newsAge = new String[NEWS_ROWS], newsFit = new String[NEWS_ROWS];
     private final float[] newsSize = new float[NEWS_ROWS];
     private int newsRows;
-    private float newsFitWidth = -1;
+    private float newsFitWidth = -1, conditionFitWidth = -1;
+    private String conditionFit = "";
 
     /** What the hero shows: a recommendation or, without any, the date, the time and the weather. */
     private static final class Hero {
@@ -1569,7 +1570,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         drawerLabel.setTextSize(23 * k);
     }
 
-    /** Weather for your location: now (large), the next hours (up to 6, as many as fit), and sunrise and sunset. */
+    /** Weather for your location: now (large), the next 6 hours, and sunrise and sunset. */
     private void drawWeatherCard(Canvas c, RectF r) {
         drawerCard(c, r);
         if (Ui.LEGACY) weatherSnapshot.draw(c, r, drawerCardsKey(), cc -> drawWeather(cc, r));
@@ -1588,17 +1589,26 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         String symbol = Symbols.weather(wx.code, wx.isDay);
         float sw = Symbols.width(getContext(), symbol, 52 * k);
         Symbols.draw(getContext(), c, symbol, x + sw / 2, r.top + 132 * k, 52 * k, drawerInk(0.95f));
+        // The 6 hours keep ~64 px each; in a narrow card the "now" side gives up the room.
+        float split = r.left + Math.min(392 * k, r.width() - 60 * k - 6 * 64 * k);
+        float condW = split - 16 * k - x;
+        // The big temperature gets smaller when it wouldn't fit beside its symbol ("-12°" in a narrow card).
+        float tempRoom = condW - sw - 18 * k, tempW = bigTemp.measureText(nowTemp);
+        if (tempW > tempRoom) bigTemp.setTextSize(Math.max(64 * k, 100 * k * tempRoom / tempW));
         c.drawText(nowTemp, x + sw + 18 * k - Ui.leftBearing(bigTemp, nowTemp), r.top + 170 * k, bigTemp);
-        c.drawText(HomeData.condition(wx.code, wx.isDay), x, r.top + 220 * k, cardText);
+        bigTemp.setTextSize(100 * k);
+        if (condW != conditionFitWidth) {
+            conditionFitWidth = condW;
+            conditionFit = TextUtils.ellipsize(HomeData.condition(wx.code, wx.isDay), new TextPaint(cardText), condW,
+                    TextUtils.TruncateAt.END).toString();
+        }
+        c.drawText(conditionFit, x, r.top + 220 * k, cardText);
         c.drawText(highLow, x, r.top + 258 * k, cardDim);
-        float split = r.left + Math.min(392 * k, r.width() * 0.46f);
         fill.setShader(null);
         fill.setColor(tone(0x1A000000, 0x24FFFFFF));
         c.drawRoundRect(split - k, r.top + 34 * k, split + k, r.bottom - 34 * k, k, k, fill);
-        float hx = split + 30 * k, room = r.right - 30 * k - hx;
-        int hours = Math.max(1, Math.min(6, (int) (room / (76 * k))));
-        float hw = room / hours;
-        for (int i = 0; i < wx.hours.size() && i < hours; i++) {
+        float hx = split + 30 * k, room = r.right - 30 * k - hx, hw = room / 6;
+        for (int i = 0; i < wx.hours.size() && i < 6; i++) {
             float hc = hx + hw * (i + 0.5f);
             c.drawText(hourText[i], hc, r.top + 96 * k, hourPaint);
             Symbols.draw(getContext(), c, Symbols.weather(wx.hourCode.get(i), wx.hourDay.get(i)), hc, r.top + 142 * k, 30 * k, drawerInk(0.9f));
@@ -1618,6 +1628,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         textLanguage = Ui.language;
         if (wx != textWeather || settings) {
             textWeather = wx;
+            conditionFitWidth = -1;
             weatherTitle = Prefs.city().isEmpty() ? Ui.tr("Weather") : Prefs.city();
             nowTemp = HomeData.degrees(wx.temp);
             highLow = HomeData.highLow(wx, "   ");
