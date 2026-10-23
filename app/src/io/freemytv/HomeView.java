@@ -161,6 +161,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final List<TitleRow> pickRows = new ArrayList<>();
     private int rowIndex;
     private final Spring rowsScroll = new Spring(0.4f, 0.9f, 0);
+    // On the picks tabs the dock slides down off the screen (1) and the rows take its place; Continue watching brings
+    // it back (0).
+    private final Spring dockAway = new Spring(0.5f, 1f, 0);
     private String selectedKey, backdropKey;
     private final Runnable backdropDue = () -> {
         backdropKey = selectedKey;
@@ -520,6 +523,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             updatePicks();
         }
         if (tab != 0) selectTab(0);
+        if (!animated) dockAway.snap(dockAway.target);
         retarget(!animated);
         motionDirty = true;
     }
@@ -711,7 +715,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         heroMoving |= topMoving | cardsMoving;
         boolean drawerItemsMoving = step(drawerFocus, dt);
         boolean gridMoving = step(gridFocus, dt) | scroll.step(dt);
-        boolean drawerMoving = drawer.step(dt);
+        boolean drawerMoving = drawer.step(dt) | dockAway.step(dt);
+        if (dockAway.velocity != 0 || dockAway.value != dockAway.target) heroDirty = true;   // the rows' room changes
         boolean sheetMoving = sheet.step(dt);
         boolean toastFading = tickToast(up);
         boolean heroFading = tickHeroFade(up);
@@ -773,8 +778,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float lift = -d * shift;
         show(heroLayer, top, lift);
         show(status, top, lift);
-        show(platter, home, lift);
-        show(tiles, home, lift);
+        // The dock leaves downward, fading out over the last part of the way.
+        float away = Ui.clamp(dockAway.value), dock = home * (1 - smoothstep(0.55f, 1, away));
+        float down = away * (h - (L_PLATTER_TOP - 40) * k);
+        show(platter, dock, lift + down);
+        show(tiles, dock, lift + down);
         float da = home * smoothstep(0.1f, 0.6f, dc);
         drawerLayer.setTranslationY((1 - d) * shift);
         drawerLayer.setAlpha(da);
@@ -2046,6 +2054,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         } else if (zone == Z_DRAWER || zone == WIDGETS) {
             closeDrawer();
             retarget(false);
+        } else if (tab != WATCH_TAB) {
+            // A picks tab has no dock: Back goes to Continue watching, where it comes back.
+            selectTab(WATCH_TAB);
+            zone = Z_SHELF;
+            retarget(false);
         } else if (zone != Z_SHELF) {
             zone = Z_SHELF;
             retarget(false);
@@ -2883,8 +2896,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     /**
-     * The rows' pictures: the current row's 15 around the screen, the 5 on screen of the rows just above and below it
-     * (moving up or down shows them ready), none for the others. Cut at the focused card's size, so it stays sharp.
+     * The rows' pictures: the current row's 15 around the screen, the 5 on screen of the row above it and of the two
+     * below (on screen with the dock away; moving up or down shows them ready), none for the others. Cut at the
+     * focused card's size, so it stays sharp.
      */
     private void loadPickArt() {
         if (tab == WATCH_TAB || pickRows.isEmpty()) return;
@@ -2892,7 +2906,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (r0 == null) return;
         int w = Math.round(r0.width() * (1 + PICK_GROW)), h = Math.round(r0.height() * (1 + PICK_GROW));
         for (int r = 0; r < pickRows.size(); r++) {
-            int around = r == rowIndex ? TitleRow.AROUND : Math.abs(r - rowIndex) == 1 ? 0 : -1;
+            int around = r == rowIndex ? TitleRow.AROUND : r - rowIndex >= -1 && r - rowIndex <= 2 ? 0 : -1;
             pickRows.get(r).load(around, w, h, recs::cardImage);
         }
     }
@@ -2975,6 +2989,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (TitleRow row : pickRows) row.clear();    // another tab's rows make way, pictures and all
         pickRows.clear();
         rowsScroll.snap(0);
+        dockAway.target = tab == WATCH_TAB ? 0 : 1;
+        motionDirty = true;
         selectedKey = backdropKey = null;
         handler.removeCallbacks(backdropDue);
         if (tab == WATCH_TAB) {
@@ -3083,8 +3099,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      */
     private void drawPickRows(Canvas c) {
         c.save();
-        c.clipRect(0, (L_TABBAR_TOP + L_TABBAR_H + 8) * k, w, (L_PLATTER_TOP - 8) * k);
-        float bottom = (L_PLATTER_TOP - 8) * k;
+        // Above the dock, or down to the screen's foot once it has gone.
+        float bottom = (L_PLATTER_TOP - 8) * k + (h - (L_PLATTER_TOP - 8) * k) * Ui.clamp(dockAway.value);
+        c.clipRect(0, (L_TABBAR_TOP + L_TABBAR_H + 8) * k, w, bottom);
         for (int r = 0; r < pickRows.size(); r++) {
             TitleRow row = pickRows.get(r);
             float top = rowTop(r);
@@ -3500,6 +3517,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 } else if (dy < 0) {
                     zone = Z_TOP;
                     topIndex = tab;     // as on Apple TV: moving up to the tabs focuses the selected tab
+                } else if (tab != WATCH_TAB) {
+                    return true;        // the last row: the dock is away
                 } else {
                     zone = Z_SHELF;
                     if (!shelf.isEmpty()) shelfIndex = nearest(tileRects, tileRects.length, cardRects[cardIndex].centerX());
@@ -3513,6 +3532,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     if (topIndex < TABS) selectTab(topIndex);   // like Apple TV tabs: focusing a tab selects it
                 } else if (dy > 0) {
                     if (cards.isEmpty()) {
+                        if (tab != WATCH_TAB) return true;     // no rows yet, and the dock is away
                         zone = Z_SHELF;
                     } else {
                         zone = Z_CARDS;
