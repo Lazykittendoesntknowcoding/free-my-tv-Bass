@@ -805,10 +805,6 @@ final class Recs {
                         if (exhausted.contains(pageKey(kd, theme)) && kind == null) continue;
                         found.add(page(kd, theme, next));
                     }
-                    synchronized (owners) {
-                        Map<String, String> own = owners(kind);
-                        for (List<Pick> l : found) for (Pick p : l) if (!own.containsKey(key(p))) added++;
-                    }
                     synchronized (pages) {
                         if (list != listAt) return;   // a new list came meanwhile: its own pages start again
                         pages.put(k, next);
@@ -821,6 +817,12 @@ final class Recs {
                             for (List<Pick> l : found) alternateCopy(all, l, new ArrayList<>());
                         }
                         picks = new ArrayList<>(all.values());
+                    }
+                    // The row that fetched a title keeps it: claimed now, an earlier row whose own next pages brought
+                    // it too (Popular has many of Kids') can't take it at the next rebuild and leave this row short.
+                    synchronized (owners) {
+                        Map<String, String> own = owners(kind);
+                        for (List<Pick> l : found) for (Pick p : l) if (own.putIfAbsent(key(p), theme) == null) added++;
                     }
                     if (found.isEmpty()) break;
                 }
