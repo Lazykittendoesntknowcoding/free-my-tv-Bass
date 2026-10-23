@@ -321,10 +321,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private String weatherTitle, nowTemp, highLow, sunriseText, sunsetText, sunriseTime, sunsetTime, newsSide;
     private final String[] hourText = new String[6], hourTempText = new String[6];
     // The news card's 4 rows: the headlines (cut to the card's width once per fetch) and how old each one is.
-    private static final int NEWS_ROWS = 4;
-    private final String[] newsTitle = new String[NEWS_ROWS], newsAge = new String[NEWS_ROWS], newsFit = new String[NEWS_ROWS];
-    private final float[] newsSize = new float[NEWS_ROWS];
-    private int newsRows;
+    /** The news card shows one headline at a time, the next every NEWS_TURN_MS, among the first NEWS_ROWS. */
+    private static final int NEWS_ROWS = 5;
+    private static final long NEWS_TURN_MS = 10_000;
+    private final String[] newsTitle = new String[NEWS_ROWS], newsAge = new String[NEWS_ROWS];
+    private final StaticLayout[] newsLayout = new StaticLayout[NEWS_ROWS];
+    private TextPaint newsPaint;
+    private int newsRows, newsIndex;
     private float newsFitWidth = -1, conditionFitWidth = -1;
     private String conditionFit = "";
 
@@ -404,6 +407,18 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
     };
 
+    private final Runnable newsTurn = new Runnable() {
+        @Override public void run() {
+            if (!running || !drawerOpen) return;
+            if (newsRows > 1 && Prefs.news()) {
+                newsIndex = (newsIndex + 1) % newsRows;
+                drawerDirty = true;
+                wake();
+            }
+            handler.postDelayed(this, NEWS_TURN_MS);
+        }
+    };
+
     HomeView(Activity a) {
         super(a);
         activity = a;
@@ -479,6 +494,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         recs.refreshIfStale();
         if (tvInputs != null) tvInputs.registerCallback(inputCallback, handler);
         handler.postDelayed(tick, 15_000);
+        if (drawerOpen) handler.postDelayed(newsTurn, NEWS_TURN_MS);
         checkNotices();
         if (!again) reload();
         updatePalette();
@@ -501,6 +517,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         okHeld = holdArmed = false;
         Choreographer.getInstance().removeFrameCallback(this);
         handler.removeCallbacks(tick);
+        handler.removeCallbacks(newsTurn);
         handler.removeCallbacks(reloadSoon);
         data.removeListener(this);
         recs.removeListener(this);
@@ -687,6 +704,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         drawerLabel.setTextAlign(Paint.Align.CENTER);
         cardTitle = Ui.text(Ui.semibold, 25 * k, 0xB3FFFFFF);
         cardText = Ui.text(Ui.medium, 29 * k, 0xF2FFFFFF);
+        newsPaint = new TextPaint(cardText);
         cardDim = Ui.numbers(Ui.medium, 23 * k, 0xADFFFFFF);
         cardDimRight = Ui.text(Ui.medium, 21 * k, 0x99FFFFFF);
         cardDimRight.setTextAlign(Paint.Align.RIGHT);
@@ -1479,6 +1497,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (drawerItems.isEmpty()) return;
         drawerOpen = true;
         drawer.target = 1;
+        // The news starts again from the top story, which gets its full time on screen.
+        newsIndex = 0;
+        handler.removeCallbacks(newsTurn);
+        handler.postDelayed(newsTurn, NEWS_TURN_MS);
         zone = Z_DRAWER;
         drawerIndex = shelf.isEmpty() ? 0 : nearest(drawerRects, tileRects[shelfIndex].centerX());
         for (int i = 0; i < drawerFocus.length; i++) drawerFocus[i].snap(i == drawerIndex ? 1 : 0);
@@ -1488,6 +1510,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void closeDrawer() {
         drawerOpen = false;
         drawer.target = 0;
+        handler.removeCallbacks(newsTurn);
         zone = Z_SHELF;
         for (Spring f : drawerFocus) f.snap(0);   // the drawer goes away: its focus doesn't need to animate
         if (!shelf.isEmpty() && drawerIndex < drawerRects.length) shelfIndex = nearest(tileRects, drawerRects[drawerIndex].centerX());
@@ -1610,7 +1633,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float hx = split + 30 * k, room = r.right - 30 * k - hx, hw = room / 6;
         for (int i = 0; i < wx.hours.size() && i < 6; i++) {
             float hc = hx + hw * (i + 0.5f);
-            c.drawText(hourText[i], hc, r.top + 96 * k, hourPaint);
+            // Only the first and the last hour say their time: the ones between follow from them.
+            if (i == 0 || i == Math.min(wx.hours.size(), 6) - 1) c.drawText(hourText[i], hc, r.top + 96 * k, hourPaint);
             Symbols.draw(getContext(), c, Symbols.weather(wx.hourCode.get(i), wx.hourDay.get(i)), hc, r.top + 142 * k, 30 * k, drawerInk(0.9f));
             c.drawText(hourTempText[i], hc, r.top + 196 * k, hourTemp);
         }
@@ -1649,6 +1673,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             newsSide = HomeData.staleness(data.newsAt, HomeData.NEWS_EVERY);
             List<HomeData.Story> stories = data.news;
             newsRows = Math.min(NEWS_ROWS, stories.size());
+            if (newsIndex >= newsRows) newsIndex = 0;
             for (int i = 0; i < newsRows; i++) {
                 HomeData.Story st = stories.get(i);
                 newsTitle[i] = st.title;
@@ -1668,7 +1693,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         return x + sw + 10 * k + cardDim.measureText(label);
     }
 
-    /** The BBC's top stories: the headline on one line (smaller, or cut short with "…", when long) and how long ago. */
+    /** The BBC's top stories, one at a time: the headline (up to 3 lines), how long ago, and which one of how many. */
     private void drawNewsCard(Canvas c, RectF r) {
         drawerCard(c, r);
         if (Ui.LEGACY) newsSnapshot.draw(c, r, drawerCardsKey(), cc -> drawNews(cc, r));
@@ -1681,7 +1706,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      */
     private String drawerCardsKey() {
         return data.weatherAt + "|" + data.newsAt + "|" + Prefs.version + "|" + Ui.language + "|"
-                + Float.floatToIntBits(dark()) + "|" + System.currentTimeMillis() / 60_000;
+                + Float.floatToIntBits(dark()) + "|" + System.currentTimeMillis() / 60_000 + "|" + newsIndex;
     }
 
     /**
@@ -1717,29 +1742,32 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         refreshDrawerText();
         c.drawText("BBC News", x, r.top + 54 * k, cardTitle);
         if (!newsSide.isEmpty()) c.drawText(newsSide, right, r.top + 54 * k, cardDimRight);
-        // Every row leaves room for the widest age, so the headlines all end in the same column.
-        float ageW = 0;
-        for (int i = 0; i < newsRows; i++) ageW = Math.max(ageW, cardDimRight.measureText(newsAge[i]));
-        float width = right - x - (ageW > 0 ? ageW + 24 * k : 0);
+        if (newsRows == 0) return;
+        int width = Math.round(right - x);
         if (width != newsFitWidth) {
             newsFitWidth = width;
-            TextPaint fit = new TextPaint(cardText);
             for (int i = 0; i < newsRows; i++) {
-                // A long headline gets a little smaller so it shows whole; only one longer still is cut with "…".
-                float size = 29 * k, wide = cardText.measureText(newsTitle[i]);
-                if (wide > width) size = Math.max(23 * k, size * width / wide);
-                newsSize[i] = size;
-                fit.setTextSize(size);
-                newsFit[i] = TextUtils.ellipsize(newsTitle[i], fit, width, TextUtils.TruncateAt.END).toString();
+                newsLayout[i] = StaticLayout.Builder.obtain(newsTitle[i], 0, newsTitle[i].length(), newsPaint, width)
+                        .setLineSpacing(0, 1.12f).setMaxLines(3).setEllipsize(TextUtils.TruncateAt.END).build();
             }
         }
-        for (int i = 0; i < newsRows; i++) {
-            float base = r.top + (110 + 52 * i) * k;
-            cardText.setTextSize(newsSize[i]);
-            c.drawText(newsFit[i], x, base, cardText);
-            c.drawText(newsAge[i], right, base, cardDimRight);
+        int i = Math.min(newsIndex, newsRows - 1);
+        newsPaint.setColor(cardText.getColor());
+        c.save();
+        c.translate(x, r.top + 84 * k);
+        newsLayout[i].draw(c);
+        c.restore();
+        float base = r.bottom - 34 * k;
+        c.drawText(newsAge[i], x, base, cardDim);
+        // A dot per story, the one showing brighter.
+        if (newsRows > 1) {
+            float dot = 5 * k, step = 22 * k, cy = base - Ui.halfCap(cardDim);
+            fill.setShader(null);
+            for (int d = 0; d < newsRows; d++) {
+                fill.setColor(d == i ? drawerInk(0.9f) : tone(0x33000000, 0x40FFFFFF));
+                c.drawCircle(right - dot - (newsRows - 1 - d) * step, cy, dot, fill);
+            }
         }
-        cardText.setTextSize(29 * k);
     }
 
     // MARK: - Focus
