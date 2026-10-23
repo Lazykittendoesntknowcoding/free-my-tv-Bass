@@ -211,5 +211,6 @@
  "{n} min ago": "{n} 分钟前",
  "{n} ms": "{n} 毫秒",
  "{n} sec": "{n} 秒",
+ "{row} · {kind}": "{row} · {kind}",
  "← → to move · OK to drop · Back to cancel": "← → 移动 · OK 放置 · 返回 取消"
 }

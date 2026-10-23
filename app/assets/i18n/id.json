@@ -211,5 +211,6 @@
  "{n} min ago": "{n} mnt lalu",
  "{n} ms": "{n} ms",
  "{n} sec": "{n} dtk",
+ "{row} · {kind}": "{row} · {kind}",
  "← → to move · OK to drop · Back to cancel": "← → pindahkan · OK letakkan · Kembali batalkan"
 }

@@ -211,5 +211,6 @@
  "{n} min ago": "{n} min ago",
  "{n} ms": "{n} ms",
  "{n} sec": "{n} sec",
+ "{row} · {kind}": "{row} · {kind}",
  "← → to move · OK to drop · Back to cancel": "← → to move · OK to drop · Back to cancel"
 }

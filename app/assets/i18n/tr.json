@@ -211,5 +211,6 @@
  "{n} min ago": "{n} dk önce",
  "{n} ms": "{n} ms",
  "{n} sec": "{n} sn",
+ "{row} · {kind}": "{row} · {kind}",
  "← → to move · OK to drop · Back to cancel": "← → taşı · OK bırak · Geri iptal et"
 }

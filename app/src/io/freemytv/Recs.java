@@ -255,44 +255,58 @@ final class Recs {
 
     static final class Row {
         String theme, title;
+        String kind;    // "movie" or "tv", or null for movies and shows together (what more() takes)
         final List<Pick> picks = new ArrayList<>();
     }
 
     /**
      * A tab's rows (movies "movie", shows "tv", both null): Trending now, Popular, New releases, Top rated, then (movies
-     * or shows) one row per genre.
+     * or shows) one row per genre. Explore (null) has each of those, and Kids, twice: a movies row, then a shows row.
      */
     List<Row> rows(String kind) {
         List<Row> out = new ArrayList<>();
         if (!hasKey(context)) return out;
         Map<String, Boolean> have = new HashMap<>();
-        List<String> themes = new ArrayList<>(Arrays.asList(HOT, POPULAR, NEW, TOP));
-        if (kind != null) {
-            themes.add(KIDS);   // the first genre
-            for (int g : kind.equals("movie") ? MOVIE_GENRES : TV_GENRES) themes.add("g" + g);
-        }
-        for (String theme : themes) {
-            Row row = new Row();
-            row.theme = theme;
-            row.title = theme.equals(HOT) ? Ui.tr("Trending now") : theme.equals(POPULAR) ? Ui.tr("Popular")
-                    : theme.equals(NEW) ? Ui.tr("New releases") : theme.equals(TOP) ? Ui.tr("Top rated")
-                    : theme.equals(KIDS) ? Ui.tr("genre|Kids")
-                    : genreNames.get(kind + ":" + theme.substring(1));
-            if (row.title == null) continue;
-            synchronized (owners) {
-                Map<String, String> own = owners(kind);
-                for (Pick p : picks) {
-                    if (!p.themes.contains(theme) || !shown(p, kind, have)) continue;
-                    String o = own.get(key(p));
-                    if (o == null) own.put(key(p), o = theme);   // the first row to show it keeps it
-                    if (o.equals(theme)) row.picks.add(p);
-                }
+        if (kind == null) {
+            for (String theme : new String[] {HOT, POPULAR, NEW, TOP, KIDS}) {
+                addRow(out, "movie", theme, Ui.trf("{row} · {kind}", "row", themeTitle(theme, "movie"), "kind", Ui.tr("Movies")), have);
+                addRow(out, "tv", theme, Ui.trf("{row} · {kind}", "row", themeTitle(theme, "tv"), "kind", Ui.tr("Shows")), have);
             }
-            // Short after skipping what other rows show (Popular is much like Trending): its next pages fill it.
-            if (row.picks.size() < SHORT_ROW && pagesOf(kind, theme) < 10) more(kind, theme);
-            if (!row.picks.isEmpty()) out.add(row);
+            return out;
         }
+        List<String> themes = new ArrayList<>(Arrays.asList(HOT, POPULAR, NEW, TOP, KIDS));   // Kids: the first genre
+        for (int g : kind.equals("movie") ? MOVIE_GENRES : TV_GENRES) themes.add("g" + g);
+        for (String theme : themes) addRow(out, kind, theme, themeTitle(theme, kind), have);
         return out;
+    }
+
+    /** A row's heading: the theme's, or the genre's name in the TV's language (null until the genre list came). */
+    private String themeTitle(String theme, String kind) {
+        return theme.equals(HOT) ? Ui.tr("Trending now") : theme.equals(POPULAR) ? Ui.tr("Popular")
+                : theme.equals(NEW) ? Ui.tr("New releases") : theme.equals(TOP) ? Ui.tr("Top rated")
+                : theme.equals(KIDS) ? Ui.tr("genre|Kids")
+                : genreNames.get(kind + ":" + theme.substring(1));
+    }
+
+    /** Adds the row of `theme` for `kind` (titles a row before it shows are left out), when it has any. */
+    private void addRow(List<Row> out, String kind, String theme, String title, Map<String, Boolean> have) {
+        Row row = new Row();
+        row.theme = theme;
+        row.kind = kind;
+        row.title = title;
+        if (row.title == null) return;
+        synchronized (owners) {
+            Map<String, String> own = owners(kind);
+            for (Pick p : picks) {
+                if (!p.themes.contains(theme) || !shown(p, kind, have)) continue;
+                String o = own.get(key(p));
+                if (o == null) own.put(key(p), o = theme);   // the first row to show it keeps it
+                if (o.equals(theme)) row.picks.add(p);
+            }
+        }
+        // Short after skipping what other rows show (Popular is much like Trending): its next pages fill it.
+        if (row.picks.size() < SHORT_ROW && pagesOf(kind, theme) < 10) more(kind, theme);
+        if (!row.picks.isEmpty()) out.add(row);
     }
 
     private static final int SHORT_ROW = 12;

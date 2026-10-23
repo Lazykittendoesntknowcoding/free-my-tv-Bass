@@ -211,5 +211,6 @@
  "{n} min ago": "{n} นาทีที่แล้ว",
  "{n} ms": "{n} ms",
  "{n} sec": "{n} วินาที",
+ "{row} · {kind}": "{row} · {kind}",
  "← → to move · OK to drop · Back to cancel": "← → ย้าย · OK วาง · ย้อนกลับ ยกเลิก"
 }

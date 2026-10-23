@@ -211,5 +211,6 @@
  "{n} min ago": "πριν από {n} λ.",
  "{n} ms": "{n} ms",
  "{n} sec": "{n} δευτ.",
+ "{row} · {kind}": "{row} · {kind}",
  "← → to move · OK to drop · Back to cancel": "← → μετακίνηση · OK τοποθέτηση · Πίσω ακύρωση"
 }

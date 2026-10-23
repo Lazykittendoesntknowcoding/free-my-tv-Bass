@@ -211,5 +211,6 @@
  "{n} min ago": "{n} хв тому",
  "{n} ms": "{n} мс",
  "{n} sec": "{n} с",
+ "{row} · {kind}": "{row} · {kind}",
  "← → to move · OK to drop · Back to cancel": "← → перемістити · OK розмістити · Назад скасувати"
 }

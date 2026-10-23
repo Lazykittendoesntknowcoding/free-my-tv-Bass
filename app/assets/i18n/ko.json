@@ -211,5 +211,6 @@
  "{n} min ago": "{n}분 전",
  "{n} ms": "{n}ms",
  "{n} sec": "{n}초",
+ "{row} · {kind}": "{row} · {kind}",
  "← → to move · OK to drop · Back to cancel": "← → 이동 · OK 배치 · 뒤로 취소"
 }

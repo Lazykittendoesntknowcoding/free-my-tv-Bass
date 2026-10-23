@@ -31,7 +31,8 @@ final class TitleRow {
     /** Where a title's picture is on disk, downloading it if needed (called on the loader thread; null: none). */
     interface Source { File file(Recs.Pick p); }
 
-    String title = "", theme = "";     // its heading, and Recs' theme (to ask for the next page)
+    String title = "", theme = "";     // its heading, and Recs' theme and kind (to ask for the next page)
+    String kind;
     List<Recs.Pick> items = new ArrayList<>();
     int index;                                              // the selected card, kept while the focus is elsewhere
     final Spring scroll = new Spring(0.38f, 0.9f, 0);       // the first card on screen (in cards)
@@ -52,8 +53,9 @@ final class TitleRow {
     }
 
     /** New titles: the selection stays on the same title when it's still there; returns true if anything changed. */
-    boolean set(String heading, String theme, List<Recs.Pick> list) {
+    boolean set(String heading, String theme, String kind, List<Recs.Pick> list) {
         this.theme = theme == null ? "" : theme;
+        this.kind = kind;
         boolean same = list.size() == items.size();
         for (int i = 0; same && i < list.size(); i++) same = Recs.key(list.get(i)).equals(Recs.key(items.get(i)));
         title = heading == null ? "" : heading;

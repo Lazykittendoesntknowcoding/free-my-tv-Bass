@@ -211,5 +211,6 @@
  "{n} min ago": "{n} min geleden",
  "{n} ms": "{n} ms",
  "{n} sec": "{n} sec",
+ "{row} · {kind}": "{row} · {kind}",
  "← → to move · OK to drop · Back to cancel": "← → verplaatsen · OK neerzetten · Terug annuleren"
 }

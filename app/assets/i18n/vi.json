@@ -211,5 +211,6 @@
  "{n} min ago": "{n} phút trước",
  "{n} ms": "{n} ms",
  "{n} sec": "{n} giây",
+ "{row} · {kind}": "{row} · {kind}",
  "← → to move · OK to drop · Back to cancel": "← → di chuyển · OK đặt · Quay lại hủy"
 }

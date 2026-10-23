@@ -211,5 +211,6 @@
  "{n} min ago": "for {n} min siden",
  "{n} ms": "{n} ms",
  "{n} sec": "{n} sek",
+ "{row} · {kind}": "{row} · {kind}",
  "← → to move · OK to drop · Back to cancel": "← → flytt · OK slipp · Tilbake avbryt"
 }

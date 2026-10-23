@@ -211,5 +211,6 @@
  "{n} min ago": "hace {n} min",
  "{n} ms": "{n} ms",
  "{n} sec": "{n} s",
+ "{row} · {kind}": "{row} · {kind}",
  "← → to move · OK to drop · Back to cancel": "← → para mover · OK para soltar · Atrás para cancelar"
 }

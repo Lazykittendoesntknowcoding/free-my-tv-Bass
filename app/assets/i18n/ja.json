@@ -211,5 +211,6 @@
  "{n} min ago": "{n}分前",
  "{n} ms": "{n} ms",
  "{n} sec": "{n}秒",
+ "{row} · {kind}": "{row} · {kind}",
  "← → to move · OK to drop · Back to cancel": "← → 移動 · OK 配置 · 戻る キャンセル"
 }

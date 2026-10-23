@@ -211,5 +211,6 @@
  "{n} min ago": "před {n} min",
  "{n} ms": "{n} ms",
  "{n} sec": "{n} s",
+ "{row} · {kind}": "{row} · {kind}",
  "← → to move · OK to drop · Back to cancel": "← → přesunout · OK umístit · Zpět zrušit"
 }

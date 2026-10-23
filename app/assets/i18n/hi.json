@@ -211,5 +211,6 @@
  "{n} min ago": "{n} मि पहले",
  "{n} ms": "{n} ms",
  "{n} sec": "{n} सेकंड",
+ "{row} · {kind}": "{row} · {kind}",
  "← → to move · OK to drop · Back to cancel": "← → खिसकाएँ · OK छोड़ें · वापस रद्द करें"
 }
