@@ -1239,7 +1239,6 @@ final class Recs {
         }
         // On none of the TV's services (trending, or a page the details say left them): it opens in Stremio.
         if (p.app == null && stremio()) toStremio(p);
-        if (p.app != null) parts.add(opensInStremio(p) ? "Stremio" : SERVICE_NAME.get(p.app));
         p.meta = String.join(" · ", parts);
         p.detailed = true;
     }
@@ -1252,11 +1251,6 @@ final class Recs {
 
     private boolean stremio() {
         return HomeApps.launchIntent(context.getPackageManager(), STREMIO) != null;
-    }
-
-    /** Opens in Stremio: anything not on Apple TV, and Apple TV titles without a Watchmode key to find their page. */
-    private boolean opensInStremio(Pick p) {
-        return stremio() && !("appletv".equals(p.app) && linksOn());
     }
 
     /** What opening the pick opens (after resolveLink): Apple TV on the title's page, else Stremio on it, else the app. */
@@ -1798,7 +1792,7 @@ final class Recs {
             p.title = o.optString("title");
             p.backdrop = o.optString("backdrop");
             p.link = o.optString("link").isEmpty() ? null : o.optString("link");
-            p.meta = o.optString("meta");
+            p.meta = withoutApp(o.optString("meta"));
             p.app = o.optString("app").isEmpty() ? null : o.optString("app");
             p.pkg = o.optString("pkg").isEmpty() ? null : o.optString("pkg");
             p.detailed = o.optBoolean("detailed");
@@ -1813,6 +1807,14 @@ final class Recs {
             out.add(p);
         }
         return out;
+    }
+
+    /** A saved line from before it left out the app it opens in ("2024 · ★ 7.1 · Drama · Stremio"). */
+    private static String withoutApp(String meta) {
+        int dot = meta.lastIndexOf(" · ");
+        if (dot < 0) return meta;
+        String last = meta.substring(dot + 3);
+        return last.equals("Stremio") || SERVICE_NAME.containsValue(last) ? meta.substring(0, dot) : meta;
     }
 
     private static String read(InputStream in) throws IOException {
