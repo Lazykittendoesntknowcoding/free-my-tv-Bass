@@ -33,8 +33,8 @@ import javax.crypto.Cipher;
 /**
  * ADB client that talks to the TV itself (127.0.0.1:5555, open while debugging is on). It's what lets the app switch
  * the home screen and the screensaver, and turn off apps, without a computer. The first time, the TV asks
- * "Allow USB debugging?" and you accept with "Always allow". Only HomeMode uses it, and only with its own fixed
- * commands (nothing from outside).
+ * "Allow USB debugging?" and you accept with "Always allow". Only HomeMode and Optimize use it, and only with their own
+ * fixed commands (nothing from outside).
  * Protocol: https://android.googlesource.com/platform/packages/modules/adb/+/refs/heads/main/protocol.txt
  */
 final class Adb implements Closeable {
@@ -114,6 +114,17 @@ final class Adb implements Closeable {
         } catch (IOException | RuntimeException e) {
             adb.close();
             throw e;
+        }
+    }
+
+    /** Same, for a long command: waits up to `timeoutMs` for its output (Deep optimize runs for minutes). */
+    String shell(String command, int timeoutMs) throws IOException {
+        int before = socket.getSoTimeout();
+        socket.setSoTimeout(timeoutMs);
+        try {
+            return shell(command);
+        } finally {
+            socket.setSoTimeout(before);
         }
     }
 

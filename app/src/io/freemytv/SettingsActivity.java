@@ -126,12 +126,13 @@ public class SettingsActivity extends Activity {
         // The list on the right; on the left, the title, the notes and (main menu) the info card.
         private static final float LIST_X = 980, LIST_R = 1840, LIST_TOP = 150, ROW_GAP = 14, CHOICE_H = 118;
         private static final float LEFT_X = 80, LEFT_R = 860, TITLE_BASE = 130, CARD_TOP = 300;
-        // The main menu: eight rows; the comparison, the picks (with the TMDB credit) and two notices go on the left.
-        private static final float MAIN_TOP = 150, ROW_H = 76, MAIN_GAP = 14;
+        // The main menu: ten rows; the comparison, the picks (with the TMDB credit) and two notices go on the left.
+        private static final float MAIN_TOP = 150, ROW_H = 64, MAIN_GAP = 10;
         // The home screen's colors: dark text by day, white at night; white glass by day, smoked at night.
         private static final int AMBER = 0xFFFFC266, DEEP_AMBER = 0xFFB25A00, INK = 0xFF1C1C1E, L_INK = 0xFF1D1D1F,
                 L_DIM = 0xFF6E6E73, L_FAINT = 0xFF8E8E93, WHITE = 0xFFF5F5F7, SMOKE = 0xFF111113;
-        private static final int MAIN_ROWS = 8, CONTENT_MAIN = 4;   // Content: below Shelf
+        private static final int MAIN_ROWS = 10, CONTENT_MAIN = 4;   // Content: below Shelf
+        private static final int OPTIMIZE_ROW = 8, DEEP_ROW = 9;      // the last two: they run right here
 
         private final SettingsActivity activity;
         private final Scene scene = new Scene(false);
@@ -162,7 +163,7 @@ public class SettingsActivity extends Activity {
         private final List<String[]> cities = new ArrayList<>();
         private String cityStatus = "";
         private final RectF tmp = new RectF(), rowRect = new RectF(), focusBox = new RectF(), card = new RectF();
-        private JSONObject state = new JSONObject(), recs = new JSONObject();
+        private JSONObject state = new JSONObject(), recs = new JSONObject(), optimize = new JSONObject();
         private boolean hasKey;
         private int screen = MAIN, focus;
         private boolean running, okDown, backDown, wasBusy;
@@ -182,6 +183,7 @@ public class SettingsActivity extends Activity {
                 checkNight();
                 hasKey = Recs.hasKey(getContext());
                 recs = Recs.status(getContext());
+                optimize = Optimize.state(getContext());
                 readUsage();
                 boolean nowBusy = !busyText().isEmpty();
                 if (nowBusy) pendingAt = 0;
@@ -193,7 +195,7 @@ public class SettingsActivity extends Activity {
                 }
                 wasBusy = nowBusy;
                 invalidate();
-                handler.postDelayed(this, busy() ? 500 : 2000);
+                handler.postDelayed(this, busy() || !optimizing().isEmpty() ? 500 : 2000);
             }
         };
 
@@ -238,6 +240,11 @@ public class SettingsActivity extends Activity {
                     }
                     String[] names = {Ui.tr("Screensaver, preview"), Ui.tr("Home Settings"), Ui.tr("Shelf"),
                             Ui.tr("Content"), Ui.tr("Top Buttons"), Ui.tr("Remote Buttons"), Ui.tr("TV Settings")};
+                    if (row == OPTIMIZE_ROW || row == DEEP_ROW) {
+                        String value = optimizeValue(row == DEEP_ROW ? Optimize.DEEP : Optimize.QUICK);
+                        String name = row == DEEP_ROW ? Ui.tr("Deep optimize") : Ui.tr("Optimize now");
+                        return value.isEmpty() ? name : name + ", " + value;
+                    }
                     return row - 1 < names.length ? names[row - 1] : "";
                 }
                 case HOME_CHOICE: {
@@ -492,7 +499,7 @@ public class SettingsActivity extends Activity {
         }
 
         private static final String[] MAIN_SYMBOLS = {"home", "bedtime", "settings", "apps", "content", "live_tv",
-                "gamepad", "tv_settings"};
+                "gamepad", "tv_settings", "sparkles", "sync"};
 
         private void drawMain(Canvas c, float seconds) {
             boolean working = busy();
@@ -503,8 +510,11 @@ public class SettingsActivity extends Activity {
 
             String mode = freeActive() ? "Free My TV" : Ui.tr("Original");
             String[] labels = {Ui.tr("Home Screen"), Ui.tr("Screensaver"), Ui.tr("Home Settings"), Ui.tr("Shelf"),
-                    Ui.tr("Content"), Ui.tr("Top Buttons"), Ui.tr("Remote Buttons"), Ui.tr("TV Settings")};
-            String[] values = {working ? "" : mode, Ui.tr("Preview"), "", "", "", "", "", ""};
+                    Ui.tr("Content"), Ui.tr("Top Buttons"), Ui.tr("Remote Buttons"), Ui.tr("TV Settings"),
+                    Ui.tr("Optimize now"), Ui.tr("Deep optimize")};
+            String running = optimizing();
+            String[] values = {working ? "" : mode, Ui.tr("Preview"), "", "", "", "", "", "",
+                    optimizeValue(Optimize.QUICK), optimizeValue(Optimize.DEEP)};
             for (int i = 0; i < labels.length; i++) {
                 float y = (MAIN_TOP + i * (ROW_H + MAIN_GAP)) * k;
                 rowRect.set(LIST_X * k, y, LIST_R * k, y + ROW_H * k);
@@ -515,12 +525,15 @@ public class SettingsActivity extends Activity {
                 Symbols.draw(getContext(), c, MAIN_SYMBOLS[i], rowRect.left + 52 * k, rowRect.centerY(), 30 * k, ink(f));
                 c.drawText(labels[i], rowRect.left + 92 * k, base, rowLabel);
                 float right = rowRect.right - 30 * k;
-                if (i >= 2) {
+                // Optimizing: the current step, with the spinning arc, as the Home Screen row while it switches.
+                boolean spin = (i == 0 && working) || (i == OPTIMIZE_ROW && running.equals(Optimize.QUICK))
+                        || (i == DEEP_ROW && running.equals(Optimize.DEEP));
+                if (i >= 2 && i < OPTIMIZE_ROW) {
                     float cw = Symbols.width(getContext(), "chevron_right", 22 * k);
                     Symbols.draw(getContext(), c, "chevron_right", right - cw / 2, rowRect.centerY(), 22 * k, faint(f));
-                } else if (i == 0 && working) {
+                } else if (spin) {
                     // Switching: the current step in place of the value, with the spinning arc.
-                    String text = busyText.isEmpty() ? Ui.tr("Starting…") : busyText;
+                    String text = i != 0 ? values[i] : busyText.isEmpty() ? Ui.tr("Starting…") : busyText;
                     rowValue.setColor(dim(f));
                     fitPaint.set(rowValue);
                     String shown = TextUtils.ellipsize(text, fitPaint, 470 * k, TextUtils.TruncateAt.END).toString();
@@ -530,7 +543,8 @@ public class SettingsActivity extends Activity {
                     Ui.spinner(c, sx, rowRect.centerY(), 12 * k, seconds * 1.3f, spinner);
                 } else {
                     rowValue.setColor(dim(f));
-                    c.drawText(values[i], right, base, rowValue);
+                    fitPaint.set(rowValue);
+                    c.drawText(TextUtils.ellipsize(values[i], fitPaint, 470 * k, TextUtils.TruncateAt.END).toString(), right, base, rowValue);
                 }
             }
 
@@ -591,9 +605,22 @@ public class SettingsActivity extends Activity {
         }
 
         private static String size(long bytes) {
-            double gb = bytes / (1024.0 * 1024 * 1024);
-            if (gb < 1) return Ui.trf("{n} MB", "n", bytes / (1024 * 1024));
-            return Ui.trf("{n} GB", "n", String.format(Ui.locale(), gb < 10 ? "%.1f" : "%.0f", gb));
+            return Optimize.size(bytes);
+        }
+
+        /** What runs now (Optimize.QUICK or DEEP), or "". */
+        private String optimizing() {
+            return Optimize.running(optimize);
+        }
+
+        /** An optimize row's value: its current step, its error, or what the last run did. */
+        private String optimizeValue(String kind) {
+            if (kind.equals(optimizing())) return optimize.optString("busy");
+            if (kind.equals(optimize.optString("errorKind")) && optimize.has("error")) return optimize.optString("error");
+            JSONObject last = optimize.optJSONObject(kind);
+            if (last == null) return kind.equals(Optimize.DEEP) ? Ui.tr("Takes a few minutes") : "";
+            if (kind.equals(Optimize.DEEP)) return Ui.trf("Done · {when}", "when", ago(last.optLong("at")));
+            return Ui.trf("Freed {ram} RAM · {disk} storage", "ram", size(last.optLong("ram")), "disk", size(last.optLong("disk")));
         }
 
         /** A gauge like a phone's battery, as a pill: the name and the percentage, the bar filled to it, and how much. */
@@ -1414,6 +1441,15 @@ public class SettingsActivity extends Activity {
                 contentShortcut = false;
             } else if (focus == 5) {
                 openShelfEditor(true);
+            } else if (focus == OPTIMIZE_ROW || focus == DEEP_ROW) {
+                if (!optimizing().isEmpty() || busy()) return;   // one at a time, and never during a switch
+                Optimize.request(c, focus == DEEP_ROW ? Optimize.DEEP : Optimize.QUICK);
+                optimize = Optimize.state(c);
+                handler.removeCallbacks(poll);
+                handler.post(poll);
+                invalidate();
+                spoken.focusMoved();
+                return;
             } else if (focus == 6) {
                 HomeMode.ensureRemoteService(c, 0);   // the buttons work from inside other apps through this service
                 loadApps();
