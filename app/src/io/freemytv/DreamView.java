@@ -4,11 +4,15 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
+import android.graphics.BitmapShader;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.Shader;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -62,6 +66,12 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
     private final Rect src = new Rect();
     private final Path clip = new Path();
     private final Paint panel = new Paint(Paint.ANTI_ALIAS_FLAG);
+    // The glass: the frosted photo behind (Photos), a light haze, a brighter band inside the edge and a rim of light.
+    private final Paint frostPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final Paint haze = new Paint(Paint.ANTI_ALIAS_FLAG), edge = new Paint(Paint.ANTI_ALIAS_FLAG), rim = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final RectF inset = new RectF();
+    private final Matrix frostMatrix = new Matrix();
+    private Bitmap frostFor;
     private final Paint photoPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final Paint backPaint = new Paint(Paint.FILTER_BITMAP_FLAG), scrim = new Paint();
     private final Photos photoSource;
@@ -125,7 +135,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
         final List<Bitmap> gone = new ArrayList<>(photos.values());
         photos.clear();
         loading.clear();
-        for (Photos.Photo p : new Photos.Photo[] {shown, before}) if (p != null) gone.add(p.image);
+        for (Photos.Photo p : new Photos.Photo[] {shown, before}) if (p != null) { gone.add(p.image); gone.add(p.frost); }
         shown = before = null;
         fadeAt = -1;
         if (!gone.isEmpty()) handler.postDelayed(() -> { for (Bitmap b : gone) b.recycle(); }, 1000);
@@ -238,9 +248,10 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
                 fadeAt = -1;
                 // The old photo goes once this frame no longer draws it.
                 if (before != null) {
-                    recycleLater(before.image);
+                    recycleLater(before);
                     before = null;
                 }
+                dirty = true;   // the glass takes the new photo's frost
             }
         }
         if (shown == null || (before == null && f < 1)) aurora.draw(canvas, w, h);
@@ -260,8 +271,8 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
     }
 
     /** After the frames that may still draw it. */
-    private void recycleLater(final Bitmap b) {
-        handler.postDelayed(b::recycle, 1000);
+    private void recycleLater(final Photos.Photo p) {
+        handler.postDelayed(p::recycle, 1000);
     }
 
     /** Loads the next photo in the background; once it's in, it fades in, and the next one comes after the timer. */
@@ -270,8 +281,9 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
         if (!running || w == 0 || fetching) return;
         if (!Prefs.dreamPhotos()) {
             if (shown != null) {   // switched back to the aurora while the screensaver shows (the preview)
+                if (before != null) recycleLater(before);
                 before = null;
-                recycleLater(shown.image);
+                recycleLater(shown);
                 shown = null;
                 dirty = true;
             }
@@ -283,7 +295,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
             final Photos.Photo p = photoSource.next(pw, ph);
             handler.post(() -> {
                 if (run != photoRun || !running) {
-                    if (p != null) p.image.recycle();
+                    if (p != null) p.recycle();
                     return;
                 }
                 fetching = false;
@@ -291,7 +303,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
                     handler.postDelayed(nextPhoto, PHOTO_RETRY_MS);   // offline: the aurora (or the last photo) stays
                     return;
                 }
-                if (before != null) recycleLater(before.image);   // a fade still running: skip to the new one
+                if (before != null) recycleLater(before);   // a fade still running: skip to the new one
                 before = shown;
                 shown = p;
                 fadeAt = clockNow();
@@ -303,10 +315,24 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
     }
 
     private void drawContent(Canvas c) {
-        // Panels a little darker when the sky is bright (day), so white text always reads.
-        float dark = shown != null ? 0.3f : 0.16f + aurora.brightness() * 0.22f;
+        // Panels a little darker when the sky is bright (day), so white text always reads. Over a photo the frost
+        // behind them already hides the detail, so less shade.
+        Bitmap frost = glassFrost();
+        float dark = frost != null ? 0.22f : shown != null ? 0.4f : 0.26f + aurora.brightness() * 0.22f;
         int shade = Math.round(Ui.clamp(dark) * 255) << 24;
         panel.setColor(shade);
+        haze.setColor(0x1AFFFFFF);
+        if (frost != frostFor) {
+            frostFor = frost;
+            if (frost == null) {
+                frostPaint.setShader(null);
+            } else {
+                BitmapShader sh = new BitmapShader(frost, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+                frostMatrix.setScale(w / (float) frost.getWidth(), h / (float) frost.getHeight());
+                sh.setLocalMatrix(frostMatrix);
+                frostPaint.setShader(sh);
+            }
+        }
         drawClock(c);
         HomeData.Weather wx = data.weather;
         if (Prefs.weather() && !Double.isNaN(wx.temp)) {
@@ -315,6 +341,39 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
         }
         if (Prefs.news()) drawNews(c);
         if (shown != null && !shown.credit.isEmpty()) c.drawText(shown.credit, RIGHT * k, 1064 * k, creditPaint);
+    }
+
+    /** The frost of the photo fully on screen (a fade keeps the old one's until it ends); null over the aurora. */
+    private Bitmap glassFrost() {
+        Photos.Photo p = fadeAt >= 0 ? before : shown;
+        return p == null || p.frost.isRecycled() ? null : p.frost;
+    }
+
+    /** A glass panel's body: the frosted photo behind it, the shade and a light haze. */
+    private void glassFill(Canvas c, RectF r, float radius) {
+        if (frostFor != null) c.drawRoundRect(r, radius, radius, frostPaint);
+        c.drawRoundRect(r, radius, radius, panel);
+        c.drawRoundRect(r, radius, radius, haze);
+    }
+
+    /** A glass panel's edge: more solid toward the border (a band fading inward) and a rim, brightest at the top. */
+    private void glassEdge(Canvas c, RectF r, float radius) {
+        final int steps = 6;
+        float step = 3 * k;
+        edge.setStyle(Paint.Style.STROKE);
+        edge.setStrokeWidth(step);
+        for (int i = 0; i < steps; i++) {
+            float d = (i + 0.5f) * step, fall = 1 - i / (float) steps;
+            edge.setColor(Math.round(0x2E * fall * fall) << 24 | 0xFFFFFF);
+            inset.set(r.left + d, r.top + d, r.right - d, r.bottom - d);
+            c.drawRoundRect(inset, Math.max(0, radius - d), Math.max(0, radius - d), edge);
+        }
+        rim.setStyle(Paint.Style.STROKE);
+        rim.setStrokeWidth(1.5f * k);
+        rim.setShader(new LinearGradient(0, r.top, 0, r.bottom, 0x80FFFFFF, 0x1FFFFFFF, Shader.TileMode.CLAMP));
+        float d = 0.75f * k;
+        inset.set(r.left + d, r.top + d, r.right - d, r.bottom - d);
+        c.drawRoundRect(inset, radius - d, radius - d, rim);
     }
 
     // MARK: - Clock and weather
@@ -343,7 +402,8 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
     private void drawForecast(Canvas c, HomeData.Weather wx) {
         float left = MARGIN * k, right = RIGHT * k, top = STRIP_TOP * k, bottom = (STRIP_TOP + STRIP_H) * k;
         rect.set(left, top, right, bottom);
-        c.drawRoundRect(rect, 32 * k, 32 * k, panel);
+        glassFill(c, rect, 32 * k);
+        glassEdge(c, rect, 32 * k);
         float slot = (right - left) / SLOTS;
         for (int i = 0; i < SLOTS; i++) {
             String label, temp;
@@ -397,7 +457,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
             HomeData.Story st = list.get(i);
             float x = left + i * (tw + TILE_GAP * k);
             rect.set(x, top, x + tw, top + th);
-            c.drawRoundRect(rect, r, r, panel);
+            glassFill(c, rect, r);
             Bitmap photo = st.image == null ? null : photos.get(st.image);
             float textTop = top + 24 * k;
             if (photo != null && !photo.isRecycled()) {
@@ -411,6 +471,8 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
                 c.restore();
                 textTop = top + PHOTO_H * k + 18 * k;
             }
+            rect.set(x, top, x + tw, top + th);
+            glassEdge(c, rect, r);
             float pad = 22 * k;
             int lines = photo != null ? 2 : 4;
             StaticLayout layout = StaticLayout.Builder.obtain(st.title, 0, st.title.length(), headline, Math.round(tw - 2 * pad))
