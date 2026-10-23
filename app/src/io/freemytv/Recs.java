@@ -51,6 +51,7 @@ final class Recs {
         String year = "", overview = "", poster = "";
         float rating;           // TMDB's score out of 10 (0: too few votes to say)
         String trailer;         // YouTube video id of the official trailer, or null: search YouTube
+        String imdb = "";       // IMDb id ("tt…"): Stremio's page for the title
         String theme = "";      // the row it came from: HOT, NEW or TOP
         // Continue watching (kind "watch"): the history's key and how far in (0 to 1).
         String watchKey;
@@ -68,11 +69,14 @@ final class Recs {
     /** Titles in the list: about 20 in each of the three rows (movies and shows together). */
     private static final int MAX_PICKS = 60;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 4;
+    private static final int CACHE_VERSION = 5;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     /** The rows of a tab: trending this week, recent releases, the best rated. */
     static final String HOT = "hot", NEW = "new", TOP = "top";
-    /** Titles on none of the TV's services open a search for them in Stremio, when it's installed. */
+    /**
+     * Where a pick opens: Apple TV when the title is there and its own page is known (Watchmode), otherwise its page in
+     * Stremio (Netflix asks for a profile first and drops the title's link; Prime Video too, the owner chose Stremio).
+     */
     static final String STREMIO = "com.stremio.one";
     private static final String YOUTUBE = "com.google.android.youtube.tv";
     /** Service name on TMDB (part of the name, lowercase) → TV app (HomeApps key, package). */
@@ -618,7 +622,7 @@ final class Recs {
     private void fetchDetails(Pick p) throws Exception {
         String own = Ui.language.replaceAll("-.*", "");
         JSONObject o = get("/" + p.kind + "/" + p.id
-                + "?language=" + lang() + "&append_to_response=watch/providers,images,videos&include_image_language=null," + own + ",en"
+                + "?language=" + lang() + "&append_to_response=watch/providers,images,videos,external_ids&include_image_language=null," + own + ",en"
                 + "&include_video_language=" + own + ",en,null");
         p.title = title(p, o);
         String date = o.optString(p.kind.equals("movie") ? "release_date" : "first_air_date", "");
@@ -628,6 +632,9 @@ final class Recs {
         String poster = o.optString("poster_path", "");
         p.poster = poster.equals("null") ? "" : poster;
         p.trailer = trailer(o.optJSONObject("videos"));
+        JSONObject ids = o.optJSONObject("external_ids");
+        String imdb = o.optString("imdb_id", ids == null ? "" : ids.optString("imdb_id", ""));
+        p.imdb = imdb.startsWith("tt") ? imdb : "";
         String best = bestBackdrop(o.optJSONObject("images"));
         if (best != null) p.backdrop = best;
         List<String> parts = new ArrayList<>();
@@ -657,21 +664,44 @@ final class Recs {
             }
         }
         // Trending but on none of the TV's services (the other lists only have titles that are on one).
-        if (p.app == null && p.theme.equals(HOT) && HomeApps.launchIntent(context.getPackageManager(), STREMIO) != null) toStremio(p);
-        if (p.app != null) parts.add(SERVICE_NAME.get(p.app));
+        if (p.app == null && p.theme.equals(HOT) && stremio()) toStremio(p);
+        if (p.app != null) parts.add(opensInStremio(p) ? "Stremio" : SERVICE_NAME.get(p.app));
         p.meta = String.join(" · ", parts);
         p.detailed = true;
     }
 
-    /** On none of the TV's services: "Watch" searches for it in Stremio. */
+    /** On none of the TV's services: it opens in Stremio. */
     private static void toStremio(Pick p) {
         p.app = "stremio";
         p.pkg = STREMIO;
-        try {
-            p.link = "stremio:///search?search=" + URLEncoder.encode(p.title, "UTF-8").replace("+", "%20");
-        } catch (java.io.UnsupportedEncodingException e) {
-            p.link = null;
+    }
+
+    private boolean stremio() {
+        return HomeApps.launchIntent(context.getPackageManager(), STREMIO) != null;
+    }
+
+    /** Opens in Stremio: anything not on Apple TV, and Apple TV titles without a Watchmode key to find their page. */
+    private boolean opensInStremio(Pick p) {
+        return stremio() && !("appletv".equals(p.app) && linksOn());
+    }
+
+    /** What opening the pick opens (after resolveLink): Apple TV on the title's page, else Stremio on it, else the app. */
+    HomeApps.Item target(Pick p) {
+        if ("appletv".equals(p.app) && p.link != null) return HomeApps.app(p.pkg, SERVICE_NAME.get(p.app), p.link);
+        if (stremio()) {
+            String link;
+            if (!p.imdb.isEmpty()) {
+                link = "stremio:///detail/" + (p.kind.equals("tv") ? "series" : "movie") + "/" + p.imdb;
+            } else {
+                try {
+                    link = "stremio:///search?search=" + URLEncoder.encode(p.title, "UTF-8").replace("+", "%20");
+                } catch (java.io.UnsupportedEncodingException e) {
+                    link = null;
+                }
+            }
+            return HomeApps.app(STREMIO, "Stremio", link);
         }
+        return HomeApps.app(p.pkg, serviceName(p), p.link);
     }
 
     /** The YouTube id of the title's trailer: an official trailer first, then any trailer, then a teaser. */
@@ -777,7 +807,8 @@ final class Recs {
     private long sourceStamp() {
         long stamp = (Config.TMDB_KEY.hashCode() * 31L + REGION.hashCode()) * 31L + (Config.HIDE_ANIMATION ? 1 : 0);
         for (String[] service : SERVICES) stamp = stamp * 31L + (installed(service[2]) ? service[2].hashCode() : 0);
-        stamp = stamp * 31L + (HomeApps.launchIntent(context.getPackageManager(), STREMIO) != null ? 1 : 0);
+        stamp = stamp * 31L + (stremio() ? 1 : 0);
+        stamp = stamp * 31L + (linksOn() ? 1 : 0);   // with a Watchmode key, Apple TV titles open there (the meta says where)
         return stamp;
     }
 
@@ -788,7 +819,7 @@ final class Recs {
     }
 
     private boolean needsLink(Pick p) {
-        return linksOn() && p.pkg != null && p.link == null
+        return linksOn() && "appletv".equals(p.app) && p.link == null
                 && cache.getString(linkKey(p), null) == null && System.currentTimeMillis() >= linkRetryAt;
     }
 
@@ -800,7 +831,7 @@ final class Recs {
 
     /** Sets p.link from what was looked up before, or looks it up (2 requests of the free plan's 2,500 a month). */
     private void findLink(Pick p) {
-        if (!linksOn() || p.pkg == null || p.link != null) return;
+        if (!linksOn() || !"appletv".equals(p.app) || p.link != null) return;
         String saved = cache.getString(linkKey(p), null);
         if (saved != null) {
             p.link = saved.isEmpty() ? null : saved;
@@ -1012,7 +1043,7 @@ final class Recs {
                 a.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop).put("link", p.link == null ? "" : p.link)
                         .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
                         .put("detailed", p.detailed).put("year", p.year).put("rating", p.rating).put("overview", p.overview)
-                        .put("poster", p.poster).put("trailer", p.trailer == null ? "" : p.trailer).put("theme", p.theme));
+                        .put("poster", p.poster).put("trailer", p.trailer == null ? "" : p.trailer).put("theme", p.theme).put("imdb", p.imdb));
             }
             SharedPreferences.Editor e = cache.edit().putString("picks", a.toString()).putInt("period", period).putLong("listAt", listAt)
                     .putString("language", listLanguage)
@@ -1047,6 +1078,7 @@ final class Recs {
             p.poster = o.optString("poster");
             p.trailer = o.optString("trailer").isEmpty() ? null : o.optString("trailer");
             p.theme = o.optString("theme");
+            p.imdb = o.optString("imdb");
             out.add(p);
         }
         return out;

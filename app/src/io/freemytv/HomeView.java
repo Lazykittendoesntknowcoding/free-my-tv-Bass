@@ -2241,12 +2241,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (!opened) showToast(Ui.trf("Couldn't open {app}.", "app", it.label));
     }
 
-    /** A pick opens on its own page in its app (looked up first if needed), or in Stremio's search, or the app. */
+    /** A pick opens on its own page: in Apple TV (its link looked up first if needed) or in Stremio (Recs.target). */
     private void openPick(final Recs.Pick p, RectF from) {
         click.open();
         final RectF r = new RectF(from);
         recs.resolveLink(p, () -> {
-            HomeApps.Item it = HomeApps.app(p.pkg, Recs.serviceName(p), p.link);
+            HomeApps.Item it = recs.target(p);
             boolean opened = HomeApps.open(activity, it, this, Math.round(r.left), Math.round(r.top),
                     Math.round(r.width()), Math.round(r.height()));
             if (!opened) showToast(Ui.trf("Couldn't open {app}.", "app", it.label));
