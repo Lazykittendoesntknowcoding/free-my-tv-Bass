@@ -23,6 +23,7 @@ public class Screensaver extends DreamService {
 
     @Override public void onDreamingStarted() {
         super.onDreamingStarted();
+        Prefs.reload();
         if (view != null) view.start();
     }
 

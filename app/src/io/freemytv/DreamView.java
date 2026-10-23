@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.Rect;
@@ -30,7 +31,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * The screensaver, over a slow aurora that follows the real day at your location (Aurora):
+ * The screensaver, over a slow aurora that follows the real day at your location (Aurora) or, when Home Settings says
+ * Photos, over photos that change every few minutes (Photos), crossfading:
  *  - top left, the 24-hour clock and the date; top right, the weather now with today's high and low;
  *  - in the middle, today's forecast: now and every 3 hours up to 12 hours ahead, each with its symbol, temperature
  *    and chance of rain;
@@ -46,6 +48,8 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
     private static final float STRIP_TOP = 404, STRIP_H = 256;
     private static final float NEWS_LABEL = 708, TILES_TOP = 730, TILE_H = 300, TILE_GAP = 32, PHOTO_H = 160;
     private static final int SLOTS = 5, TILES = 4;
+    private static final long FADE_MS = 2000, PHOTO_RETRY_MS = 60_000;
+    private static final int PHOTO_SCRIM = 0x4D000000;
 
     private final HomeData data;
     private final Aurora aurora = new Aurora();
@@ -59,13 +63,19 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
     private final Path clip = new Path();
     private final Paint panel = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint photoPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final Paint backPaint = new Paint(Paint.FILTER_BITMAP_FLAG), scrim = new Paint();
+    private final Photos photoSource;
+    private Photos.Photo shown, before;   // the background photo, and the one it is fading in over (null: the aurora)
+    private long fadeAt = -1;
+    private boolean fetching;
+    private int photoRun;                 // bumped by stop(): a photo that arrives later is thrown away
     private final float timeOffset = (float) (Math.random() * 3000);
     private boolean running, dirty = true;
     private long startedAt, lastSky = -1, minute = -1;
     private int w, h, generation;
     private float k = 1;
     private String clock = "", date = "";
-    private Paint clockPaint, datePaint, tempPaint, conditionPaint, slotLabel, slotTemp, slotRain, newsLabel, agePaint;
+    private Paint clockPaint, datePaint, tempPaint, conditionPaint, slotLabel, slotTemp, slotRain, newsLabel, agePaint, creditPaint;
     private TextPaint headline;
 
     private final Runnable tick = new Runnable() {
@@ -81,7 +91,10 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
     DreamView(Context c) {
         super(c);
         data = HomeData.get(c);
+        photoSource = new Photos(c);
     }
+
+    private final Runnable nextPhoto = this::fetchPhoto;
 
     void start() {
         if (running) return;
@@ -92,6 +105,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
         data.addListener(this);
         data.refreshIfStale();
         loadPhotos();
+        fetchPhoto();
         handler.postDelayed(tick, 60_000);
         Choreographer.getInstance().postFrameCallback(this);
         invalidate();
@@ -103,11 +117,17 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
         generation++;
         Choreographer.getInstance().removeFrameCallback(this);
         handler.removeCallbacks(tick);
+        handler.removeCallbacks(nextPhoto);
+        photoRun++;
+        fetching = false;
         data.removeListener(this);
         // The photos stay in memory until the garbage collector runs: release them now (after the last frame).
         final List<Bitmap> gone = new ArrayList<>(photos.values());
         photos.clear();
         loading.clear();
+        for (Photos.Photo p : new Photos.Photo[] {shown, before}) if (p != null) gone.add(p.image);
+        shown = before = null;
+        fadeAt = -1;
         if (!gone.isEmpty()) handler.postDelayed(() -> { for (Bitmap b : gone) b.recycle(); }, 1000);
     }
 
@@ -144,6 +164,9 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
         newsLabel.setLetterSpacing(0.12f);
         headline = new TextPaint(Ui.text(Ui.semibold, 27 * k, 0xF7FFFFFF));
         agePaint = Ui.text(Ui.medium, 22 * k, 0x99FFFFFF);
+        creditPaint = Ui.text(Ui.medium, 20 * k, 0x99FFFFFF);
+        creditPaint.setTextAlign(Paint.Align.RIGHT);
+        creditPaint.setShadowLayer(12 * k, 0, 1 * k, 0x66000000);
         for (Paint p : new Paint[] {clockPaint, datePaint, tempPaint, conditionPaint, newsLabel}) {
             p.setShadowLayer(18 * k, 0, 2 * k, 0x59000000);
         }
@@ -153,6 +176,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
         loading.clear();
         generation++;
         loadPhotos();
+        fetchPhoto();   // start() can come before the first layout, with no size yet
         dirty = true;
     }
 
@@ -165,11 +189,15 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
     @Override public void doFrame(long frameTimeNanos) {
         if (!running) return;
         long up = clockNow();
-        if (lastSky < 0 || up - lastSky >= SKY_STEP_MS) {
+        if (fadeAt >= 0) {
+            invalidate();   // a crossfade: every frame
+        } else if (lastSky < 0 || up - lastSky >= SKY_STEP_MS) {
             lastSky = up;
-            HomeData.Weather wx = data.weather;
-            aurora.palette(System.currentTimeMillis(), wx.sunrise, wx.sunset);
-            aurora.step(timeOffset + (up - startedAt) / 1000f);
+            if (shown == null) {
+                HomeData.Weather wx = data.weather;
+                aurora.palette(System.currentTimeMillis(), wx.sunrise, wx.sunset);
+                aurora.step(timeOffset + (up - startedAt) / 1000f);
+            }
             invalidate();
         }
         Choreographer.getInstance().postFrameCallback(this);
@@ -184,7 +212,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
             date = Ui.date(now);
             dirty = true;
         }
-        aurora.draw(canvas, w, h);
+        drawBackground(canvas);
         if (dirty) {
             Canvas c = content.beginRecording(w, h);
             try {
@@ -200,9 +228,84 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
         content.draw(canvas);
     }
 
+    // MARK: - Background
+
+    private void drawBackground(Canvas canvas) {
+        float f = 1;
+        if (fadeAt >= 0) {
+            f = Ui.clamp((clockNow() - fadeAt) / (float) FADE_MS);
+            if (f >= 1) {
+                fadeAt = -1;
+                // The old photo goes once this frame no longer draws it.
+                if (before != null) {
+                    recycleLater(before.image);
+                    before = null;
+                }
+            }
+        }
+        if (shown == null || (before == null && f < 1)) aurora.draw(canvas, w, h);
+        rect.set(0, 0, w, h);
+        if (before != null && !before.image.isRecycled()) {
+            backPaint.setAlpha(255);
+            canvas.drawBitmap(before.image, null, rect, backPaint);
+        }
+        if (shown != null && !shown.image.isRecycled()) {
+            backPaint.setAlpha(Math.round(f * 255));
+            canvas.drawBitmap(shown.image, null, rect, backPaint);
+            // A light shade over the photo, so the white text reads on bright skies and snow.
+            scrim.setColor(PHOTO_SCRIM);
+            if (before == null) scrim.setAlpha(Math.round(f * Color.alpha(PHOTO_SCRIM)));
+            canvas.drawRect(rect, scrim);
+        }
+    }
+
+    /** After the frames that may still draw it. */
+    private void recycleLater(final Bitmap b) {
+        handler.postDelayed(b::recycle, 1000);
+    }
+
+    /** Loads the next photo in the background; once it's in, it fades in, and the next one comes after the timer. */
+    private void fetchPhoto() {
+        handler.removeCallbacks(nextPhoto);
+        if (!running || w == 0 || fetching) return;
+        if (!Prefs.dreamPhotos()) {
+            if (shown != null) {   // switched back to the aurora while the screensaver shows (the preview)
+                before = null;
+                recycleLater(shown.image);
+                shown = null;
+                dirty = true;
+            }
+            return;
+        }
+        fetching = true;
+        final int run = photoRun, pw = w, ph = h;
+        worker.execute(() -> {
+            final Photos.Photo p = photoSource.next(pw, ph);
+            handler.post(() -> {
+                if (run != photoRun || !running) {
+                    if (p != null) p.image.recycle();
+                    return;
+                }
+                fetching = false;
+                if (p == null) {
+                    handler.postDelayed(nextPhoto, PHOTO_RETRY_MS);   // offline: the aurora (or the last photo) stays
+                    return;
+                }
+                if (before != null) recycleLater(before.image);   // a fade still running: skip to the new one
+                before = shown;
+                shown = p;
+                fadeAt = clockNow();
+                dirty = true;   // the panels and the credit
+                invalidate();
+                handler.postDelayed(nextPhoto, Prefs.photoSeconds() * 1000L);
+            });
+        });
+    }
+
     private void drawContent(Canvas c) {
         // Panels a little darker when the sky is bright (day), so white text always reads.
-        int shade = Math.round(Ui.clamp(0.16f + aurora.brightness() * 0.22f) * 255) << 24;
+        float dark = shown != null ? 0.3f : 0.16f + aurora.brightness() * 0.22f;
+        int shade = Math.round(Ui.clamp(dark) * 255) << 24;
         panel.setColor(shade);
         drawClock(c);
         HomeData.Weather wx = data.weather;
@@ -211,6 +314,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
             drawForecast(c, wx);
         }
         if (Prefs.news()) drawNews(c);
+        if (shown != null && !shown.credit.isEmpty()) c.drawText(shown.credit, RIGHT * k, 1064 * k, creditPaint);
     }
 
     // MARK: - Clock and weather

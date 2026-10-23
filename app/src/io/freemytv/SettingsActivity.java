@@ -637,8 +637,9 @@ public class SettingsActivity extends Activity {
         // MARK: - Home Settings and Remote Buttons
 
         private static final String[] UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
-        /** Home Settings: language, temperature, theme, sounds, weather, city, news. */
-        private static final int CITY_ROW = 5;
+        /** Home Settings: language, temperature, theme, sounds, weather, city, news, the screensaver's background and
+         *  (with Photos) how often they change. */
+        private static final int CITY_ROW = 5, BACKGROUND_ROW = 7, PHOTO_TIME_ROW = 8;
 
         private String[] settingLabels() {
             List<String> l = new ArrayList<>();
@@ -649,6 +650,8 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("Weather widget"));
             l.add(Ui.tr("City"));
             l.add(Ui.tr("News widget"));
+            l.add(Ui.tr("Screensaver background"));
+            if (Prefs.dreamPhotos()) l.add(Ui.tr("Photo change"));
             return l.toArray(new String[0]);
         }
 
@@ -665,7 +668,13 @@ public class SettingsActivity extends Activity {
             v[4] = onOff(Prefs.weather());
             v[CITY_ROW] = !cityStatus.isEmpty() ? cityStatus : Prefs.city().isEmpty() ? "—" : Prefs.city();
             v[6] = onOff(Prefs.news());
+            v[BACKGROUND_ROW] = Prefs.dreamPhotos() ? Ui.tr("Photos") : Ui.tr("Aurora");
+            if (v.length > PHOTO_TIME_ROW) v[PHOTO_TIME_ROW] = photoTime(Prefs.photoSeconds());
             return v;
+        }
+
+        private static String photoTime(int seconds) {
+            return seconds < 60 ? Ui.trf("{n} sec", "n", seconds) : Ui.trf("{n} min", "n", seconds / 60);
         }
 
         /** "auto", then English and every language with a catalogue. */
@@ -744,6 +753,13 @@ public class SettingsActivity extends Activity {
                 case 4: Prefs.setWeather(!Prefs.weather()); break;
                 case CITY_ROW: return;
                 case 6: Prefs.setNews(!Prefs.news()); break;
+                case BACKGROUND_ROW: Prefs.setDreamPhotos(!Prefs.dreamPhotos()); return;
+                case PHOTO_TIME_ROW: {
+                    int n = Prefs.PHOTO_TIMES.length, at = 0;
+                    for (int i = 0; i < n; i++) if (Prefs.PHOTO_TIMES[i] == Prefs.photoSeconds()) at = i;
+                    Prefs.setPhotoSeconds(Prefs.PHOTO_TIMES[(at + dir + n) % n]);
+                    return;
+                }
                 default: return;
             }
             HomeData.get(getContext()).settingsChanged();
