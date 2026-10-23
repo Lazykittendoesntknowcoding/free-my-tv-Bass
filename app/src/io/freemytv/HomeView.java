@@ -2263,8 +2263,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         } else if (zone == Z_CARDS) {
             Recs.Pick p = cardIndex < cards.size() ? cards.get(cardIndex) : null;
             if (p == null) return;
-            openPreview(p);
-            return;
+            if (YouTubeFeed.KIND.equals(p.kind)) {
+                // A YouTube video plays straight away in the YouTube app (it has no title popup).
+                it = HomeApps.app(p.pkg, "YouTube", p.link);
+                r = cardRects[cardIndex];
+            } else {
+                openPreview(p);
+                return;
+            }
         } else {
             if (shelf.isEmpty()) return;
             it = shelf.get(shelfIndex);
@@ -2307,7 +2313,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private Recs.Pick heldPick() {
         if (sheetOpen) return null;
         if (zone == Z_HERO) return currentPick();
-        if (zone == Z_CARDS && tab != WATCH_TAB && cardIndex < cards.size()) return cards.get(cardIndex);
+        if (zone == Z_CARDS && tab != WATCH_TAB && cardIndex < cards.size()) {
+            Recs.Pick p = cards.get(cardIndex);
+            return YouTubeFeed.KIND.equals(p.kind) ? null : p;   // no trailer or "not interested" for a video
+        }
         return null;
     }
 

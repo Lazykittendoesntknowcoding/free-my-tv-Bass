@@ -53,6 +53,7 @@ final class Config {
     static final String TMDB_KEY = "$(prop tmdb_key '')";
     static final String WATCHMODE_KEY = "$(prop watchmode_key '')";
     static final String OMDB_KEY = "$(prop omdb_key '')";
+    static final String YOUTUBE_KEY = "$(prop youtube_key '')";
     static final String TMDB_REGION = "$(prop tmdb_region US)";
     static final String LATITUDE = "$LAT";
     static final String LONGITUDE = "$LON";

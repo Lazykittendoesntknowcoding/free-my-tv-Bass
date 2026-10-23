@@ -52,6 +52,7 @@ final class Recs {
         float rating;           // TMDB's score out of 10 (0: too few votes to say)
         String trailer;         // YouTube video id of the official trailer, or null: search YouTube
         String imdb = "";       // IMDb id ("tt…"): Stremio's page for the title
+        String image;           // its picture's whole URL (YouTube), or null: TMDB's, from `backdrop`
         Set<String> themes = new java.util.LinkedHashSet<>();   // the rows it's in: HOT, POPULAR, NEW, TOP, "g<genre id>"
         // Continue watching (kind "watch"): the history's key and how far in (0 to 1).
         String watchKey;
@@ -271,6 +272,7 @@ final class Recs {
             for (String theme : new String[] {HOT, POPULAR, NEW, TOP, KIDS}) {
                 addRow(out, "movie", theme, Ui.trf("{row} · {kind}", "row", themeTitle(theme, "movie"), "kind", Ui.tr("Movies")), have);
                 addRow(out, "tv", theme, Ui.trf("{row} · {kind}", "row", themeTitle(theme, "tv"), "kind", Ui.tr("Shows")), have);
+                if (theme.equals(HOT)) youTubeRow(out);
             }
             return out;
         }
@@ -310,6 +312,55 @@ final class Recs {
     }
 
     private static final int SHORT_ROW = 12;
+
+    // MARK: - Trending on YouTube (Explore)
+
+    private volatile List<Pick> youtube = new ArrayList<>();
+    private String youtubeNext;
+    private long youtubeAt, youtubeFailedAt;
+    private final java.util.concurrent.atomic.AtomicBoolean youtubeBusy = new java.util.concurrent.atomic.AtomicBoolean();
+    private static final long YOUTUBE_EVERY = 3600_000L;
+
+    /** Adds "Trending now · YouTube" (with youtube_key), fetching its first page again every hour. */
+    private void youTubeRow(List<Row> out) {
+        if (!YouTubeFeed.on()) return;
+        long now = System.currentTimeMillis();
+        if ((youtube.isEmpty() || now - youtubeAt > YOUTUBE_EVERY || now < youtubeAt) && now - youtubeFailedAt > 10 * 60_000L) {
+            fetchYouTube(true);
+        }
+        Row row = new Row();
+        row.theme = HOT;
+        row.kind = YouTubeFeed.KIND;
+        row.title = Ui.trf("{row} · {kind}", "row", Ui.tr("Trending now"), "kind", "YouTube");
+        for (Pick p : youtube) if (!hidden().contains(key(p))) row.picks.add(p);
+        if (!row.picks.isEmpty()) out.add(row);
+    }
+
+    /** The first page again (fresh), or the next one; one fetch at a time, then the rows are rebuilt. */
+    private void fetchYouTube(final boolean fresh) {
+        if (!fresh && youtubeNext == null) return;   // the end of YouTube's list
+        if (!youtubeBusy.compareAndSet(false, true)) return;
+        final String token = fresh ? null : youtubeNext;
+        quick.execute(() -> {
+            try {
+                String[] next = new String[1];
+                List<Pick> page = YouTubeFeed.page(REGION, lang(), token, next);
+                List<Pick> all = fresh ? new ArrayList<>() : new ArrayList<>(youtube);
+                Set<String> seen = new HashSet<>();
+                for (Pick p : all) seen.add(key(p));
+                for (Pick p : page) if (seen.add(key(p))) all.add(p);
+                youtube = all;
+                youtubeNext = next[0];
+                if (fresh) youtubeAt = System.currentTimeMillis();
+                notifyListeners();
+            } catch (IOException e) {
+                youtubeFailedAt = System.currentTimeMillis();
+                AppLog.w("youtube: " + e.getMessage());
+            } finally {
+                youtubeBusy.set(false);
+            }
+        });
+    }
 
     /** The tab's titles and the row each shows in (hold `owners`). */
     private Map<String, String> owners(String kind) {
@@ -729,6 +780,10 @@ final class Recs {
      * the end; does nothing while that row's page is coming or when there's no more.
      */
     void more(String kind, String theme) {
+        if (YouTubeFeed.KIND.equals(kind)) {
+            fetchYouTube(false);
+            return;
+        }
         if (!hasKey(context) || filters.isEmpty() || theme == null) return;
         final String k = pageKey(kind, theme);
         synchronized (pages) {
@@ -1292,7 +1347,7 @@ final class Recs {
         //noinspection ResultOfMethodCallIgnored
         f.getParentFile().mkdirs();
         File part = new File(f.getPath() + ".part");
-        HttpURLConnection c = (HttpURLConnection) new URL(IMAGES + p.backdrop).openConnection();
+        HttpURLConnection c = (HttpURLConnection) new URL(p.image != null ? p.image : IMAGES + p.backdrop).openConnection();
         c.setConnectTimeout(8000);
         c.setReadTimeout(20000);
         try (InputStream in = c.getInputStream(); FileOutputStream out = new FileOutputStream(part)) {
@@ -1322,7 +1377,8 @@ final class Recs {
         f.getParentFile().mkdirs();
         File part = new File(f.getPath() + ".part");
         try {
-            HttpURLConnection c = (HttpURLConnection) new URL("https://image.tmdb.org/t/p/w780" + p.backdrop).openConnection();
+            String url = p.image != null ? p.image : "https://image.tmdb.org/t/p/w780" + p.backdrop;
+            HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
             c.setConnectTimeout(8000);
             c.setReadTimeout(15000);
             try (InputStream in = c.getInputStream(); FileOutputStream out = new FileOutputStream(part)) {
