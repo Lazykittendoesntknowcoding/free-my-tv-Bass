@@ -79,7 +79,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
     private int w, h, generation;
     private float k = 1;
     private String clock = "", date = "";
-    private Paint clockPaint, datePaint, tempPaint, conditionPaint, slotLabel, slotTemp, slotRain, newsLabel, agePaint, creditPaint;
+    private Paint clockPaint, datePaint, tempPaint, conditionPaint, slotLabel, slotTemp, slotRain, newsLabel, agePaint;
     private TextPaint headline;
 
     private final Runnable tick = new Runnable() {
@@ -168,9 +168,6 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
         newsLabel.setLetterSpacing(0.12f);
         headline = new TextPaint(Ui.text(Ui.semibold, 27 * k, 0xF7FFFFFF));
         agePaint = Ui.text(Ui.medium, 22 * k, 0x99FFFFFF);
-        creditPaint = Ui.text(Ui.medium, 20 * k, 0x99FFFFFF);
-        creditPaint.setTextAlign(Paint.Align.RIGHT);
-        creditPaint.setShadowLayer(12 * k, 0, 1 * k, 0x66000000);
         for (Paint p : new Paint[] {clockPaint, datePaint, tempPaint, conditionPaint, newsLabel}) {
             p.setShadowLayer(18 * k, 0, 2 * k, 0x59000000);
         }
@@ -300,7 +297,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
                 before = shown;
                 shown = p;
                 fadeAt = clockNow();
-                dirty = true;   // the panels and the credit
+                dirty = true;
                 invalidate();
                 handler.postDelayed(nextPhoto, Prefs.photoSeconds() * 1000L);
             });
@@ -315,7 +312,6 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
             drawForecast(c, wx);
         }
         if (Prefs.news()) drawNews(c);
-        if (shown != null && !shown.credit.isEmpty()) c.drawText(shown.credit, RIGHT * k, 1064 * k, creditPaint);
     }
 
     /** A glass panel's edge: more solid toward the border (a band fading inward) and a rim, brightest at the top. */
