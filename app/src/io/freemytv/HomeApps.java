@@ -422,7 +422,7 @@ final class HomeApps {
                 break;
             case SETTINGS:
                 intent = new Intent().setComponent(new ComponentName(a, SettingsActivity.class));
-                if (TOP_CONTENT.equals(it.key)) intent.putExtra("content", true);   // straight to Home Settings › Content
+                if (TOP_CONTENT.equals(it.key)) intent.putExtra("content", true);   // straight to Content
                 break;
             case ANDROID_SETTINGS:
                 intent = new Intent(Settings.ACTION_SETTINGS);

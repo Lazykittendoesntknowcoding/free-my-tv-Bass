@@ -168,7 +168,7 @@ final class Prefs {
         put("shelf", sb.toString());
     }
 
-    // MARK: - Picks rows (moved, hidden or added on the home screen and in Home Settings › Content, per tab: "all" for Explore, "movie", "tv")
+    // MARK: - Picks rows (moved, hidden or added on the home screen and in Settings › Content, per tab: "all" for Explore, "movie", "tv")
 
     /** The tab's rows in the order they were last moved to, by Recs.Row.id; empty until a row is moved. */
     static List<String> rowOrder(String tab) {
@@ -194,7 +194,7 @@ final class Prefs {
         if (ids.remove(id)) put("rowsHidden." + tab, join(ids));
     }
 
-    /** Rows added in Home Settings › Content (the ones a tab doesn't show by itself), in the order they were added. */
+    /** Rows added in Content (the ones a tab doesn't show by itself), in the order they were added. */
     static List<String> addedRows(String tab) {
         return list(sp().getString("rowsAdded." + tab, ""));
     }
