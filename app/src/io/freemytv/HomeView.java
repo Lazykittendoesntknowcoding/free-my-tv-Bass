@@ -278,6 +278,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private float tileShaderH, cardSheenH;
     private LinearGradient[] lightSheens = new LinearGradient[0], lightRims = new LinearGradient[0];
     private float[] lightShaderW = new float[0];
+    private StaticLayout[] overviewLayouts = new StaticLayout[0];
+    private String[] overviewTexts = new String[0];
+    private LinearGradient[] overviewScrims = new LinearGradient[0];
+    private float[] overviewW = new float[0];
+    private TextPaint overviewPaint;
     private android.graphics.ColorFilter veilFilter;
     private float veilAmount = -1;
     private int veilColor;
@@ -614,6 +619,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lCardTitle = Ui.text(Ui.semibold, 31 * k, L_INK);
         lCardTitle.setLetterSpacing(0.012f);
         lCardMeta = Ui.text(Ui.medium, 25 * k, L_DIM);
+        overviewPaint = new TextPaint(Ui.text(Ui.medium, 23 * k, 0xFFFFFFFF));
+        overviewLayouts = new StaticLayout[0];
         lTip = Ui.text(Ui.semibold, 25 * k, L_INK);
         lTip.setTextAlign(Paint.Align.CENTER);
         lDate = Ui.text(Ui.semibold, 34 * k, L_DIM);
@@ -1970,7 +1977,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                         okDown = true;
                         okHeld = false;
                         handler.removeCallbacks(holdStart);
-                        holdArmed = sheetOpen ? canToggleShelf(gridIndex) : canReorder() || canRemoveWatched();
+                        holdArmed = sheetOpen ? canToggleShelf(gridIndex) : canReorder() || canRemoveWatched() || heldPick() != null;
                         if (holdArmed) handler.postDelayed(holdStart, HOLD_MS);
                     } else if (okDown && holdArmed && e.isLongPress()) {
                         hold();
@@ -2144,8 +2151,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         } else if (zone == Z_HERO) {
             Recs.Pick p = currentPick();
             if (p == null || p.pkg == null) return;
-            it = HomeApps.app(p.pkg, Recs.serviceName(p), p.link);
-            r = heroButton;
+            openPick(p, heroButton);
+            return;
         } else if (zone == Z_STATUS) {
             if (statusItems.isEmpty()) return;
             it = statusItems.get(statusIndex);
@@ -2168,8 +2175,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         } else if (zone == Z_CARDS) {
             Recs.Pick p = cardIndex < cards.size() ? cards.get(cardIndex) : null;
             if (p == null || p.pkg == null) return;
-            it = HomeApps.app(p.pkg, Recs.serviceName(p), p.link);
-            r = cardRects[cardIndex];
+            openPick(p, cardRects[cardIndex]);
+            return;
         } else {
             if (shelf.isEmpty()) return;
             it = shelf.get(shelfIndex);
@@ -2196,11 +2203,51 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (!opened) showToast(Ui.trf("Couldn't open {app}.", "app", it.label));
     }
 
+    /** A pick opens on its own page in its app (looked up first if needed), or in Stremio's search, or the app. */
+    private void openPick(final Recs.Pick p, RectF from) {
+        click.open();
+        final RectF r = new RectF(from);
+        recs.resolveLink(p, () -> {
+            HomeApps.Item it = HomeApps.app(p.pkg, Recs.serviceName(p), p.link);
+            boolean opened = HomeApps.open(activity, it, this, Math.round(r.left), Math.round(r.top),
+                    Math.round(r.width()), Math.round(r.height()));
+            if (!opened) showToast(Ui.trf("Couldn't open {app}.", "app", it.label));
+        });
+    }
+
+    /** The pick under the focus (a Movies, Shows or Explore card, or the hero), or null. */
+    private Recs.Pick heldPick() {
+        if (sheetOpen) return null;
+        if (zone == Z_HERO) return currentPick();
+        if (zone == Z_CARDS && tab != WATCH_TAB && cardIndex < cards.size()) return cards.get(cardIndex);
+        return null;
+    }
+
+    /** Holding OK on a pick: its trailer in YouTube (the official one, or a search for it). */
+    private void playTrailer() {
+        handler.removeCallbacks(holdStart);
+        holdArmed = false;
+        Recs.Pick p = heldPick();
+        if (p == null) return;
+        okHeld = true;
+        click.open();
+        try {
+            getContext().startActivity(Recs.trailer(p));
+        } catch (android.content.ActivityNotFoundException | SecurityException e) {
+            try {
+                getContext().startActivity(Recs.trailerSearch(p));
+            } catch (android.content.ActivityNotFoundException | SecurityException e2) {
+                showToast(Ui.trf("Couldn't open {app}.", "app", "YouTube"));
+            }
+        }
+    }
+
     // MARK: - Holding OK: All Apps puts the app on the shelf or takes it off; on the shelf, the app is lifted to move
 
     private void hold() {
         if (sheetOpen) toggleShelf();
         else if (canRemoveWatched()) removeWatched();
+        else if (heldPick() != null) playTrailer();
         else startReorder();
     }
 
@@ -2908,12 +2955,49 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             c.restore();
         }
         if (p == null) return;
+        if (f > 0.01f && p.overview != null && !p.overview.isEmpty()) drawOverview(c, i, p.overview, cx, cy, s, bw, bh, r0, f);
         fitPaint.set(lCardTitle);
         c.drawText(TextUtils.ellipsize(p.title, fitPaint, bw, TextUtils.TruncateAt.END).toString(), base.left, base.bottom + 46 * k, lCardTitle);
-        if (i == 0 && p.meta != null && !p.meta.isEmpty()) {
+        if (p.meta != null && !p.meta.isEmpty()) {
             fitPaint.set(lCardMeta);
             c.drawText(TextUtils.ellipsize(p.meta, fitPaint, bw, TextUtils.TruncateAt.END).toString(), base.left, base.bottom + 80 * k, lCardMeta);
         }
+    }
+
+    /** What the title is about, over the bottom of the focused card on a dark fade (laid out once per text and size). */
+    private void drawOverview(Canvas c, int i, String text, float cx, float cy, float s, float bw, float bh, float r0, float f) {
+        if (overviewLayouts.length != cardRects.length) {
+            overviewLayouts = new StaticLayout[cardRects.length];
+            overviewTexts = new String[cardRects.length];
+            overviewScrims = new LinearGradient[cardRects.length];
+            overviewW = new float[cardRects.length];
+        }
+        float pad = 24 * k;
+        if (overviewLayouts[i] == null || !text.equals(overviewTexts[i]) || overviewW[i] != bw) {
+            int width = Math.max(1, Math.round(bw - 2 * pad));
+            overviewLayouts[i] = StaticLayout.Builder.obtain(text, 0, text.length(), overviewPaint, width)
+                    .setMaxLines(bw > bh ? 3 : 6)
+                    .setEllipsize(TextUtils.TruncateAt.END)
+                    .setIncludePad(false)
+                    .build();
+            float top = bh / 2 - overviewLayouts[i].getHeight() - 2 * pad - 40 * k;
+            overviewScrims[i] = new LinearGradient(0, top, 0, bh / 2, 0x00000000, 0xD9000000, Shader.TileMode.CLAMP);
+            overviewTexts[i] = text;
+            overviewW[i] = bw;
+        }
+        StaticLayout layout = overviewLayouts[i];
+        c.save();
+        c.translate(cx, cy);
+        c.scale(s, s);
+        tmp.set(-bw / 2, -bh / 2, bw / 2, bh / 2);
+        sheen.setShader(overviewScrims[i]);
+        sheen.setAlpha(Math.round(255 * f));
+        c.drawRoundRect(tmp, r0, r0, sheen);
+        sheen.setAlpha(255);
+        c.translate(-bw / 2 + pad, bh / 2 - pad - layout.getHeight());
+        overviewPaint.setAlpha(Math.round(255 * f));
+        layout.draw(c);
+        c.restore();
     }
 
     // MARK: - Continue watching

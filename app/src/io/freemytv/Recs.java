@@ -48,6 +48,10 @@ final class Recs {
         String title, backdrop, meta = "", app, pkg;
         String link;            // opens the title in its app (looked up with Watchmode), or null: the app's home
         boolean detailed;
+        String year = "", overview = "", poster = "";
+        float rating;           // TMDB's score out of 10 (0: too few votes to say)
+        String trailer;         // YouTube video id of the official trailer, or null: search YouTube
+        String theme = "";      // the row it came from: HOT, NEW or TOP
         // Continue watching (kind "watch"): the history's key and how far in (0 to 1).
         String watchKey;
         float progress;
@@ -61,9 +65,16 @@ final class Recs {
     /** TMDB's Animation genre (movies and shows: cartoons and anime), left out with hide_animation=true. */
     private static final int ANIMATION = 16;
     private static final long LIST_EVERY = 6 * 3600_000L;
+    /** Titles in the list: about 20 in each of the three rows (movies and shows together). */
+    private static final int MAX_PICKS = 60;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 3;
+    private static final int CACHE_VERSION = 4;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
+    /** The rows of a tab: trending this week, recent releases, the best rated. */
+    static final String HOT = "hot", NEW = "new", TOP = "top";
+    /** Titles on none of the TV's services open a search for them in Stremio, when it's installed. */
+    static final String STREMIO = "com.stremio.one";
+    private static final String YOUTUBE = "com.google.android.youtube.tv";
     /** Service name on TMDB (part of the name, lowercase) → TV app (HomeApps key, package). */
     private static final String[][] SERVICES = {
         {"netflix", "netflix", "com.netflix.ninja"},
@@ -97,6 +108,7 @@ final class Recs {
         SERVICE_NAME.put("okko", "Okko");
         SERVICE_NAME.put("crunchyroll", "Crunchyroll");
         SERVICE_NAME.put("oneplay", "Oneplay");
+        SERVICE_NAME.put("stremio", "Stremio");
     }
     /** Country for "what streams where" (config.properties "tmdb_region", e.g. US, GB, BR). */
     static final String REGION = Config.TMDB_REGION.trim().toUpperCase(Locale.ROOT);
@@ -192,10 +204,7 @@ final class Recs {
         List<Pick> list = new ArrayList<>();
         if (!hasKey(context)) return list;    // no TMDB key: no recommendations
         Map<String, Boolean> have = new HashMap<>();   // one look per app, not per title (this runs every 15 s)
-        for (Pick p : picks) {
-            if ((kind == null || kind.equals(p.kind))
-                    && (!p.detailed || (p.pkg != null && have.computeIfAbsent(p.pkg, this::installed)))) list.add(p);   // app missing: skip
-        }
+        for (Pick p : picks) if (shown(p, kind, have)) list.add(p);
         if (list.isEmpty()) return list;
         long hour = System.currentTimeMillis() / 3600_000L;
         // Three per hour, never two from the same franchise ("Law & Order" and "Law & Order: Special…").
@@ -206,6 +215,102 @@ final class Recs {
             if (seen.add(franchise(p.title))) out.add(p);
         }
         return out;
+    }
+
+    /** Of that kind (null: any), its app on the TV (skipped when missing), not hidden and not already being watched. */
+    private boolean shown(Pick p, String kind, Map<String, Boolean> have) {
+        if (kind != null && !kind.equals(p.kind)) return false;
+        if (p.detailed && (p.pkg == null || !have.computeIfAbsent(p.pkg, this::installed))) return false;
+        return !hidden().contains(key(p)) && !watched(p.title);
+    }
+
+    static final class Row {
+        String theme, title;
+        final List<Pick> picks = new ArrayList<>();
+    }
+
+    /** A tab's rows (movies "movie", shows "tv", both null): Trending now, New releases, Top rated, up to 20 each. */
+    List<Row> rows(String kind) {
+        List<Row> out = new ArrayList<>();
+        if (!hasKey(context)) return out;
+        Map<String, Boolean> have = new HashMap<>();
+        for (String theme : new String[] {HOT, NEW, TOP}) {
+            Row row = new Row();
+            row.theme = theme;
+            row.title = theme.equals(HOT) ? Ui.tr("Trending now") : theme.equals(NEW) ? Ui.tr("New releases") : Ui.tr("Top rated");
+            for (Pick p : picks) if (theme.equals(p.theme) && row.picks.size() < 20 && shown(p, kind, have)) row.picks.add(p);
+            if (!row.picks.isEmpty()) out.add(row);
+        }
+        return out;
+    }
+
+    // MARK: - Hidden and already watched
+
+    /** Titles hidden with "Not interested" (their keys), in their own file: a new cache version doesn't bring them back. */
+    private Set<String> hiddenKeys;
+
+    private synchronized Set<String> hidden() {
+        if (hiddenKeys == null) {
+            hiddenKeys = new HashSet<>(context.getSharedPreferences("recs-hidden", Context.MODE_PRIVATE)
+                    .getStringSet("keys", new HashSet<>()));
+        }
+        return hiddenKeys;
+    }
+
+    /** "Not interested": the title doesn't show again, in any tab or row. */
+    synchronized void hide(Pick p) {
+        Set<String> keys = new HashSet<>(hidden());
+        keys.add(key(p));
+        hiddenKeys = keys;
+        context.getSharedPreferences("recs-hidden", Context.MODE_PRIVATE).edit().putStringSet("keys", keys).apply();
+        notifyListeners();
+    }
+
+    private long watchedStamp = -1;
+    private Set<String> watchedTitles = new HashSet<>();
+
+    /** Being watched already (in Continue watching): no need to recommend it. */
+    private synchronized boolean watched(String title) {
+        long stamp = WatchHistory.stamp(context);
+        if (stamp != watchedStamp) {
+            watchedStamp = stamp;
+            Set<String> titles = new HashSet<>();
+            for (WatchHistory.Entry e : WatchHistory.load(context)) {
+                titles.add(e.title.trim().toLowerCase(Locale.ROOT));
+                int bar = e.key.indexOf('|');
+                if (bar >= 0) titles.add(e.key.substring(bar + 1));   // the series' name
+            }
+            watchedTitles = titles;
+        }
+        return title != null && watchedTitles.contains(title.trim().toLowerCase(Locale.ROOT));
+    }
+
+    // MARK: - Trailer
+
+    /** The title's trailer in YouTube: the official one when TMDB knows it, else a YouTube search for it. */
+    static android.content.Intent trailer(Pick p) {
+        android.content.Intent i;
+        if (p.trailer != null) {
+            i = new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://www.youtube.com/watch?v=" + p.trailer));
+        } else {
+            i = new android.content.Intent(android.content.Intent.ACTION_SEARCH).putExtra(android.app.SearchManager.QUERY, trailerQuery(p));
+        }
+        return i.setPackage(YOUTUBE).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+    }
+
+    /** When YouTube won't take the search request: its search page. */
+    static android.content.Intent trailerSearch(Pick p) {
+        try {
+            return new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(
+                    "https://www.youtube.com/results?search_query=" + URLEncoder.encode(trailerQuery(p), "UTF-8")))
+                    .setPackage(YOUTUBE).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+        } catch (java.io.UnsupportedEncodingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static String trailerQuery(Pick p) {
+        return p.title + (p.year.isEmpty() ? "" : " " + p.year) + " trailer";
     }
 
     /** "Law & Order: Special Victims Unit" → "law & order" (what comes before ":" or " - "). */
@@ -261,6 +366,7 @@ final class Recs {
                 || !listLanguage.equals(Ui.language);
         boolean missing = false;
         for (Pick pick : wanted()) missing |= !pick.detailed || !hasImage(pick) || needsLink(pick);
+        for (Pick pick : picks) missing |= !pick.detailed;
         if (!stale && !missing) return;
         keyStamp = stamp;
         fetching = true;
@@ -280,6 +386,14 @@ final class Recs {
                         last = e.getMessage() == null ? e.toString() : e.getMessage();
                     }
                     findLink(pick);
+                }
+                // The rest of the rows: details (rating, year, what it's about), not images or links (those when shown or opened).
+                for (Pick pick : picks) {
+                    if (pick.detailed) continue;
+                    try {
+                        fetchDetails(pick);
+                    } catch (Exception ignored) {
+                    }
                 }
                 save();
                 if (tried > 0 && failures == tried) throw new IOException(last);
@@ -404,17 +518,19 @@ final class Recs {
         if (services.isEmpty()) throw new IOException(NO_APPS);
         StringBuilder ids = new StringBuilder();
         for (int id : services.keySet()) ids.append(ids.length() == 0 ? "" : "|").append(id);
-        String common = "&language=" + lang() + "&watch_region=" + REGION + "&with_watch_monetization_types=flatrate&include_adult=false"
-                + "&sort_by=popularity.desc&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8")
+        String filters = "&language=" + lang() + "&watch_region=" + REGION + "&with_watch_monetization_types=flatrate&include_adult=false"
+                + "&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8")
                 + (Config.HIDE_ANIMATION ? "&without_genres=" + ANIMATION : "");
+        String common = filters + "&sort_by=popularity.desc";
         // 1. Trending this week (TMDB goes by what people are watching and searching for right now), only what is
-        //    on one of the TV's services: the details say where (and are then ready).
+        //    on one of the TV's services: the details say where (and are then ready). Without one, Stremio's search.
         List<Pick> hotMovies = new ArrayList<>(), hotShows = new ArrayList<>();
         for (String kind : new String[] {"movie", "tv"}) {
             JSONArray hot = get("/trending/" + kind + "/week?language=" + lang()).getJSONArray("results");
             List<Pick> candidates = new ArrayList<>();
             for (int i = 0; i < hot.length() && i < 20; i++) add(candidates, hot.getJSONObject(i), kind);
             for (Pick pick : candidates) {
+                pick.theme = HOT;
                 try {
                     fetchDetails(pick);
                 } catch (Exception e) {
@@ -432,11 +548,22 @@ final class Recs {
         List<Pick> newMovies = new ArrayList<>(), newShows = new ArrayList<>();
         for (int i = 0; i < movies.length(); i++) add(newMovies, movies.getJSONObject(i), "movie");
         for (int i = 0; i < shows.length(); i++) add(newShows, shows.getJSONObject(i), "tv");
-        // Trending first, then the new releases; movies and shows alternating, without repeats, up to 24.
+        // 3. The best rated on the TV's services (with enough votes to mean something).
+        JSONArray bestMovies = get("/discover/movie?vote_count.gte=1000&sort_by=vote_average.desc" + filters).getJSONArray("results");
+        JSONArray bestShows = get("/discover/tv?vote_count.gte=300&sort_by=vote_average.desc" + filters).getJSONArray("results");
+        List<Pick> topMovies = new ArrayList<>(), topShows = new ArrayList<>();
+        for (int i = 0; i < bestMovies.length(); i++) add(topMovies, bestMovies.getJSONObject(i), "movie");
+        for (int i = 0; i < bestShows.length(); i++) add(topShows, bestShows.getJSONObject(i), "tv");
+        for (Pick pick : newMovies) pick.theme = NEW;
+        for (Pick pick : newShows) pick.theme = NEW;
+        for (Pick pick : topMovies) pick.theme = TOP;
+        for (Pick pick : topShows) pick.theme = TOP;
+        // Trending first, then the new releases, then the best rated; movies and shows alternating, without repeats.
         List<Pick> list = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
-        alternate(list, seen, hotMovies, hotShows, 24);
-        alternate(list, seen, newMovies, newShows, 24);
+        alternate(list, seen, hotMovies, hotShows, MAX_PICKS / 3);
+        alternate(list, seen, newMovies, newShows, MAX_PICKS * 2 / 3);
+        alternate(list, seen, topMovies, topShows, MAX_PICKS);
         if (list.isEmpty()) throw new IOException("TMDB returned no recommendations");
         picks = list;
         period = p;
@@ -489,14 +616,25 @@ final class Recs {
 
     /** Genre, runtime (or seasons) and the service it's on, among the ones the TV has. */
     private void fetchDetails(Pick p) throws Exception {
+        String own = Ui.language.replaceAll("-.*", "");
         JSONObject o = get("/" + p.kind + "/" + p.id
-                + "?language=" + lang() + "&append_to_response=watch/providers,images&include_image_language=null," + Ui.language.replaceAll("-.*", "") + ",en");
+                + "?language=" + lang() + "&append_to_response=watch/providers,images,videos&include_image_language=null," + own + ",en"
+                + "&include_video_language=" + own + ",en,null");
         p.title = title(p, o);
+        String date = o.optString(p.kind.equals("movie") ? "release_date" : "first_air_date", "");
+        p.year = date.length() >= 4 ? date.substring(0, 4) : "";
+        p.rating = o.optInt("vote_count") >= 20 ? (float) o.optDouble("vote_average", 0) : 0;
+        p.overview = o.optString("overview", "").trim();
+        String poster = o.optString("poster_path", "");
+        p.poster = poster.equals("null") ? "" : poster;
+        p.trailer = trailer(o.optJSONObject("videos"));
         String best = bestBackdrop(o.optJSONObject("images"));
         if (best != null) p.backdrop = best;
         List<String> parts = new ArrayList<>();
         JSONArray genres = o.optJSONArray("genres");
         if (p.kind.equals("tv")) parts.add(Ui.tr("Series"));
+        if (!p.year.isEmpty()) parts.add(p.year);
+        if (p.rating > 0) parts.add(String.format(Ui.locale(), "\u2605 %.1f", p.rating));
         if (genres != null && genres.length() > 0) {
             String name = genres.getJSONObject(0).optString("name");
             parts.add(genre(name));
@@ -518,9 +656,40 @@ final class Recs {
                 p.pkg = s[2];
             }
         }
+        // Trending but on none of the TV's services (the other lists only have titles that are on one).
+        if (p.app == null && p.theme.equals(HOT) && HomeApps.launchIntent(context.getPackageManager(), STREMIO) != null) toStremio(p);
         if (p.app != null) parts.add(SERVICE_NAME.get(p.app));
         p.meta = String.join(" · ", parts);
         p.detailed = true;
+    }
+
+    /** On none of the TV's services: "Watch" searches for it in Stremio. */
+    private static void toStremio(Pick p) {
+        p.app = "stremio";
+        p.pkg = STREMIO;
+        try {
+            p.link = "stremio:///search?search=" + URLEncoder.encode(p.title, "UTF-8").replace("+", "%20");
+        } catch (java.io.UnsupportedEncodingException e) {
+            p.link = null;
+        }
+    }
+
+    /** The YouTube id of the title's trailer: an official trailer first, then any trailer, then a teaser. */
+    private static String trailer(JSONObject videos) {
+        JSONArray list = videos == null ? null : videos.optJSONArray("results");
+        String best = null;
+        int bestScore = 0;
+        for (int i = 0; list != null && i < list.length(); i++) {
+            JSONObject v = list.optJSONObject(i);
+            if (v == null || !"YouTube".equals(v.optString("site")) || v.optString("key").isEmpty()) continue;
+            String type = v.optString("type");
+            int score = (type.equals("Trailer") ? 4 : type.equals("Teaser") ? 2 : 0) + (v.optBoolean("official") ? 1 : 0);
+            if (score > bestScore) {
+                bestScore = score;
+                best = v.optString("key");
+            }
+        }
+        return best;
     }
 
     /**
@@ -608,6 +777,7 @@ final class Recs {
     private long sourceStamp() {
         long stamp = (Config.TMDB_KEY.hashCode() * 31L + REGION.hashCode()) * 31L + (Config.HIDE_ANIMATION ? 1 : 0);
         for (String[] service : SERVICES) stamp = stamp * 31L + (installed(service[2]) ? service[2].hashCode() : 0);
+        stamp = stamp * 31L + (HomeApps.launchIntent(context.getPackageManager(), STREMIO) != null ? 1 : 0);
         return stamp;
     }
 
@@ -664,6 +834,18 @@ final class Recs {
         }
     }
 
+    /** Before opening a pick: its link looked up now if it wasn't yet (then `then` runs on the main thread). */
+    void resolveLink(Pick p, Runnable then) {
+        if (!needsLink(p) || fetching) {   // behind a whole refresh it would take too long: the app's home then
+            then.run();
+            return;
+        }
+        io.execute(() -> {
+            findLink(p);
+            main.post(then);
+        });
+    }
+
     private static String watchmode(String path) throws IOException {
         HttpURLConnection c = (HttpURLConnection) new URL("https://api.watchmode.com/v1" + path + (path.contains("?") ? "&" : "?")
                 + "apiKey=" + URLEncoder.encode(Config.WATCHMODE_KEY.trim(), "UTF-8")).openConnection();
@@ -703,7 +885,7 @@ final class Recs {
         return key.isEmpty() ? null : key;
     }
 
-    // MARK: - Images (TMDB originals on disk, up to 24 so the whole list fits; this hour's kept ready in memory)
+    // MARK: - Images (TMDB originals on disk, up to MAX_PICKS so the whole list fits; this hour's kept ready in memory)
 
     private void download(Pick p) throws IOException {
         File f = imageFile(p);
@@ -779,9 +961,9 @@ final class Recs {
             if (parts[i].lastModified() < stale) parts[i].delete();
         }
         File[] files = dir.listFiles((d, name) -> !name.endsWith(".part"));
-        if (files == null || files.length <= 24) return;
+        if (files == null || files.length <= MAX_PICKS) return;
         Arrays.sort(files, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
-        for (int i = 0; i < files.length - 24; i++) {
+        for (int i = 0; i < files.length - MAX_PICKS; i++) {
             //noinspection ResultOfMethodCallIgnored
             files[i].delete();
         }
@@ -795,7 +977,8 @@ final class Recs {
             for (Pick p : picks) {
                 a.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop).put("link", p.link == null ? "" : p.link)
                         .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
-                        .put("detailed", p.detailed));
+                        .put("detailed", p.detailed).put("year", p.year).put("rating", p.rating).put("overview", p.overview)
+                        .put("poster", p.poster).put("trailer", p.trailer == null ? "" : p.trailer).put("theme", p.theme));
             }
             SharedPreferences.Editor e = cache.edit().putString("picks", a.toString()).putInt("period", period).putLong("listAt", listAt)
                     .putString("language", listLanguage)
@@ -824,6 +1007,12 @@ final class Recs {
             p.app = o.optString("app").isEmpty() ? null : o.optString("app");
             p.pkg = o.optString("pkg").isEmpty() ? null : o.optString("pkg");
             p.detailed = o.optBoolean("detailed");
+            p.year = o.optString("year");
+            p.rating = (float) o.optDouble("rating", 0);
+            p.overview = o.optString("overview");
+            p.poster = o.optString("poster");
+            p.trailer = o.optString("trailer").isEmpty() ? null : o.optString("trailer");
+            p.theme = o.optString("theme");
             out.add(p);
         }
         return out;
