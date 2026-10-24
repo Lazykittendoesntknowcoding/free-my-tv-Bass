@@ -209,6 +209,97 @@ final class WatchHistory {
         return "stremio:///detail/series/" + imdb + (season >= 0 ? "/" + imdb + ":" + season + ":" + ep : "");
     }
 
+    /**
+     * Where to find a picture for a title whose app gave none: a YouTube video's thumbnail (its ID from the app, or the
+     * one YouTubeFeed found), else the backdrop TMDB has for its name. Best first; empty when there's none. Network:
+     * never on the UI thread.
+     */
+    static List<String> artElsewhere(Context c, String key, String name, String pkg, String mediaId) {
+        List<String> out = new ArrayList<>();
+        if (isYouTube(pkg)) {
+            String id = YOUTUBE_ID.matcher(mediaId).matches() ? mediaId : null;
+            Entry e = id == null ? find(c, key) : null;
+            if (e != null && e.link.startsWith(YOUTUBE_WATCH)) id = e.link.substring(YOUTUBE_WATCH.length()).replaceAll("[&?#].*", "");
+            if (id != null) {
+                out.add("https://i.ytimg.com/vi/" + id + "/maxresdefault.jpg");
+                out.add("https://i.ytimg.com/vi/" + id + "/mqdefault.jpg");   // 16:9 without the bars of hqdefault
+            }
+            return out;
+        }
+        if (Config.TMDB_KEY.trim().isEmpty()) return out;
+        String query = name;
+        for (Pattern p : EPISODE) {
+            Matcher n = p.matcher(name);
+            if (!n.find()) continue;
+            if (n.start() > 0) query = name.substring(0, n.start()).replaceAll("[\\s\\-:|·]+$", "");
+            break;
+        }
+        if (query.trim().isEmpty()) return out;
+        try {
+            JSONArray results = Recs.get("/search/multi?query=" + URLEncoder.encode(query.trim(), "UTF-8")).optJSONArray("results");
+            for (int i = 0; results != null && i < results.length() && out.isEmpty(); i++) {
+                JSONObject r = results.getJSONObject(i);
+                String mt = r.optString("media_type"), path = r.optString("backdrop_path");
+                if ((mt.equals("tv") || mt.equals("movie")) && path.startsWith("/")) out.add("https://image.tmdb.org/t/p/w780" + path);
+            }
+        } catch (Exception e) {
+            AppLog.w("continue watching: no TMDB picture for " + query + ": " + e.getMessage());
+        }
+        return out;
+    }
+
+    /** Finds a picture elsewhere (artElsewhere) for a title that has none yet, and saves it. Network: off the UI thread. */
+    static boolean findArt(Context c, String key, String name, String pkg, String mediaId) {
+        if (art(c, key).exists()) return true;
+        for (String url : artElsewhere(c, key, name, pkg, mediaId)) {
+            android.graphics.Bitmap b = download(c, url);
+            if (b != null) return saveArt(c, key, b);
+        }
+        AppLog.w("continue watching: no picture for " + key);
+        return false;
+    }
+
+    /** Saves a title's picture (watch-art/), small enough for a selected card. */
+    static boolean saveArt(Context c, String key, android.graphics.Bitmap b) {
+        // Cards are about 330 px wide on a 1080p screen (500 when selected): 640 is plenty.
+        if (b.getWidth() > 640) b = android.graphics.Bitmap.createScaledBitmap(b, 640, Math.max(1, Math.round(b.getHeight() * 640f / b.getWidth())), true);
+        File f = art(c, key), tmp = new File(f.getPath() + "." + android.os.Process.myPid() + ".tmp");
+        try (FileOutputStream out = new FileOutputStream(tmp)) {
+            b.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, out);
+        } catch (IOException e) {
+            AppLog.w("continue watching artwork: " + e.getMessage());
+            return false;
+        }
+        if (tmp.renameTo(f)) return true;
+        AppLog.w("continue watching: artwork not saved");
+        return false;
+    }
+
+    /** A picture from a link: the web (http goes as https: the app allows no plain http), or another app's content. */
+    static android.graphics.Bitmap download(Context c, String link) {
+        if (link.startsWith("http://")) link = "https://" + link.substring(7);
+        try {
+            if (link.startsWith("https://")) {
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(link).openConnection();
+                conn.setConnectTimeout(8000);
+                conn.setReadTimeout(8000);
+                try (java.io.InputStream in = conn.getInputStream()) {
+                    return android.graphics.BitmapFactory.decodeStream(in);
+                } finally {
+                    conn.disconnect();
+                }
+            }
+            if (link.startsWith("content://") || link.startsWith("android.resource://")) {
+                try (java.io.InputStream in = c.getContentResolver().openInputStream(Uri.parse(link))) {
+                    return in == null ? null : android.graphics.BitmapFactory.decodeStream(in);
+                }
+            }
+        } catch (Exception e) {
+            AppLog.w("continue watching artwork: " + e.getMessage());
+        }
+        return null;
+    }
+
     /** Stremio's search for the title: when its page can't be found, the next best thing. */
     static String stremioSearch(String name) {
         try {

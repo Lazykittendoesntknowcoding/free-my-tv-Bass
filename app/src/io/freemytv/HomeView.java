@@ -187,6 +187,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private volatile java.util.Set<String> watchWanted = java.util.Collections.emptySet();   // the window's titles
     private final java.util.Set<String> watchNoArt = new java.util.HashSet<>();   // none saved or unreadable: the app's name shows
     private final java.util.Set<String> watchArtFailed = new java.util.HashSet<>();   // pictures (ids) that wouldn't decode
+    private final java.util.Set<String> watchArtSought = new java.util.HashSet<>();   // titles a picture was looked for
     private final List<HomeApps.Item> lightButtons = new ArrayList<>();
     private Paint lTitle, lTab, lTabOn, lCardTitle, lCardMeta, lTip, lDate, lClock, lWeather;
     private Shader lightGradient;
@@ -3794,7 +3795,17 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void updateWatchCards() {
         final Context c = getContext().getApplicationContext();
         long stamp = WatchHistory.stamp(c);
-        if (stamp == watchStamp) return;
+        if (stamp == watchStamp) {
+            // A picture is saved after its title joins the list (it may come from the web): one that has arrived since
+            // replaces the app's name.
+            for (String key : watchNoArt) {
+                if (watchWanted.contains(key) && WatchHistory.art(c, key).exists()) {
+                    loadWatchArt();
+                    break;
+                }
+            }
+            return;
+        }
         watchStamp = stamp;
         PackageManager pm = c.getPackageManager();
         List<Recs.Pick> list = new ArrayList<>();
@@ -3873,11 +3884,20 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             final java.io.File f = WatchHistory.art(c, key);
             final String id = key + "|" + f.lastModified() + "|" + cw;
             if (!f.exists() || watchArtFailed.contains(id)) watchNoArt.add(key);
+            if (!f.exists() && watchArtSought.add(key)) {
+                // None saved (the app gave none, or it was played before pictures were looked for elsewhere): one is
+                // looked for once, and the card shows it when found.
+                final String title = p.title, pkg = p.pkg;
+                ROW_LOADER.execute(() -> {
+                    if (WatchHistory.findArt(c, key, title, pkg, "")) handler.post(this::loadWatchArt);
+                });
+            }
             if (watchArt.containsKey(id) || watchArtLoading.contains(id) || watchNoArt.contains(key)) continue;
             watchArtLoading.add(id);
             LOADER.execute(() -> {
                 Bitmap cut = null;
-                Bitmap b = watchWanted.contains(key) ? android.graphics.BitmapFactory.decodeFile(f.getPath()) : null;
+                final boolean skipped = !watchWanted.contains(key);   // scrolled away before its turn: not a failure
+                Bitmap b = skipped ? null : android.graphics.BitmapFactory.decodeFile(f.getPath());
                 if (b != null) {
                     float scale = Math.max(cw / (float) b.getWidth(), ch / (float) b.getHeight());
                     int sw = Math.round(cw / scale), sh = Math.round(ch / scale);
@@ -3890,6 +3910,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 handler.post(() -> {
                     watchArtLoading.remove(id);
                     if (!watchWanted.contains(key)) return;   // scrolled away meanwhile
+                    if (skipped) {   // and back again: it loads now
+                        loadWatchArt();
+                        return;
+                    }
                     if (done == null) {
                         watchArtFailed.add(id);
                         watchNoArt.add(key);
