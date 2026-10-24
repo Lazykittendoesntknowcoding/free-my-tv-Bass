@@ -3481,16 +3481,39 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         spoken.focusMoved();    // new picks under the focused card
     }
 
+    /** A picks tab left for another: its rows (with their pictures) and where you were, ready for coming back. */
+    private static final class TabRows {
+        final List<TitleRow> rows = new ArrayList<>();
+        int rowIndex;
+        float scroll;
+    }
+
+    private final Map<Integer, TabRows> keptTabs = new HashMap<>();
+
+    /** Memory is short: the other tabs' rows go (they load again when you go back). */
+    void dropKeptTabs() {
+        for (TabRows kept : keptTabs.values()) for (TitleRow row : kept.rows) row.clear();
+        keptTabs.clear();
+    }
+
     private void selectTab(int index) {
         if (index == tab) return;
         endRowEdit();
+        if (tab != WATCH_TAB && !pickRows.isEmpty()) {
+            TabRows kept = new TabRows();
+            kept.rows.addAll(pickRows);
+            kept.rowIndex = rowIndex;
+            kept.scroll = rowsScroll.target;
+            keptTabs.put(tab, kept);
+        }
         tab = index;
         watchStamp = -1;
         watchScroll.snap(0);
-        for (TitleRow row : pickRows) row.clear();    // another tab's rows make way, pictures and all
         pickRows.clear();
         if (tab == WATCH_TAB) dropRowPictures();
-        rowsScroll.snap(0);
+        TabRows back = keptTabs.remove(tab);
+        if (back != null) pickRows.addAll(back.rows);
+        rowsScroll.snap(back == null ? 0 : back.scroll);
         dockAway.target = tab == WATCH_TAB ? 0 : 1;
         motionDirty = true;
         selectedKey = backdropKey = null;
@@ -3500,10 +3523,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             cardRects = watchRects;
             cardIndex = 0;
         } else {
-            useRow(0);
+            useRow(back == null ? 0 : back.rowIndex);
         }
         layoutCards();
         updateCards();
+        if (back != null) retarget(false);   // its springs as the focus now is (on the tabs), its pictures loading again
         heroDirty = true;
     }
 
@@ -3614,7 +3638,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (lifted >= 0) drawPickRow(c, lifted, bottom);
         drawRowMenu(c);
         c.restore();
-        if (rowPicturesBehind) heroLayer.postInvalidateOnAnimation();   // the next frame makes the next one
+        prepareNextRows(bottom);
+        if (rowPicturesBehind || rowPictureMade) heroLayer.postInvalidateOnAnimation();   // the next frame makes the next one
     }
 
     private void drawPickRow(Canvas c, int r, float bottom) {
@@ -3696,8 +3721,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         // What it shows: its titles and pictures, the light or dark look, and the language of its heading.
         long stamp = ((long) row.version * 31 + Float.floatToIntBits(dark())) * 31 + Ui.generation;
-        boolean calm = rowsScroll.settled() && (rowIndex >= pickRows.size() || pickRows.get(rowIndex).still);
-        if (pic.stamp != stamp && (rowPictureMade || !calm)) {
+        if (pic.stamp != stamp && (rowPictureMade || !rowsCalm())) {
             // Making one takes a frame's time: never while anything slides (the rows, or along the current one), and
             // one per frame once all is still, where a long frame doesn't show.
             rowPicturesBehind = true;
@@ -3711,8 +3735,30 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             pic.canvas.restore();
             pic.stamp = stamp;
         }
-        c.drawBitmap(pic.bitmap, 0, top, rowPicturePaint);
+        if (c != null) c.drawBitmap(pic.bitmap, 0, top, rowPicturePaint);
         return true;
+    }
+
+    private boolean rowsCalm() {
+        return rowsScroll.settled() && (rowIndex >= pickRows.size() || pickRows.get(rowIndex).still);
+    }
+
+    /**
+     * While all is still, the rows just off screen (the one above the current row, the first one below the screen) get
+     * their pictures ready too, so a step up or down slides in a picture instead of drawing that row live.
+     */
+    private void prepareNextRows(float bottom) {
+        if (!Ui.LEGACY || rowPictureMade || !rowsCalm()) return;
+        int below = rowIndex + 1;
+        while (below < pickRows.size() && rowTop(below) <= bottom) below++;
+        prepareRow(rowIndex - 1);
+        prepareRow(below);
+    }
+
+    private void prepareRow(int r) {
+        if (r < 0 || r >= pickRows.size() || rowPictureMade) return;
+        TitleRow row = pickRows.get(r);
+        if (row.still && row != menuRow) drawRestingRow(null, row, r, rowTop(r));
     }
 
     /** Off the picks tabs, the rows' pictures go. */
