@@ -2455,10 +2455,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         });
     }
 
-    /** The pick under the focus (a Movies, Shows or Explore card, or the hero), or null. */
+    /** The pick under the focus (a Movies, Shows, Explore or Continue watching card, or the hero), or null. */
     private Recs.Pick heldPick() {
         if (sheetOpen) return null;
         if (zone == Z_HERO) return currentPick();
+        if (canRemoveWatched()) return cards.get(cardIndex);
         if (zone == Z_CARDS && tab != WATCH_TAB && cardIndex < cards.size()) {
             Recs.Pick p = cards.get(cardIndex);
             return YouTubeFeed.KIND.equals(p.kind) ? null : p;   // no trailer or "not interested" for a video
@@ -2532,7 +2533,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
     }
 
-    // MARK: - Holding OK on a pick: a small menu over its card (Watch trailer, Not interested)
+    // MARK: - Holding OK on a pick: a small menu over its card (Watch trailer, Not interested; Remove on Continue watching)
 
     private void openPickMenu() {
         handler.removeCallbacks(holdStart);
@@ -2556,7 +2557,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         spoken.focusMoved();
     }
 
-    private static String[] menuLabels() {
+    private String[] menuLabels() {
+        if (menuPick != null && "watch".equals(menuPick.kind)) return new String[] {Ui.tr("Remove")};
         return new String[] {Ui.tr("Watch trailer"), Ui.tr("Not interested")};
     }
 
@@ -2566,7 +2568,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             case KeyEvent.KEYCODE_DPAD_UP:
             case KeyEvent.KEYCODE_DPAD_DOWN:
                 if (down) {
-                    int next = e.getKeyCode() == KeyEvent.KEYCODE_DPAD_UP ? 0 : 1;
+                    int next = e.getKeyCode() == KeyEvent.KEYCODE_DPAD_UP ? 0 : menuLabels().length - 1;
                     if (next != menuIndex) {
                         menuIndex = next;
                         click.move();
@@ -2601,7 +2603,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         Recs.Pick p = menuPick;
         closePickMenu();
         if (p == null) return;
-        if (menuIndex == 0) {
+        if ("watch".equals(p.kind)) {
+            removeWatched(p);
+        } else if (menuIndex == 0) {
             playTrailer(p);
         } else {
             click.open();
@@ -2619,7 +2623,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         c.drawRoundRect(menuRect, r0, r0, fill);
         String[] labels = menuLabels();
         float bh = 64 * k, gap = 16 * k, bw = Math.min(menuRect.width() - 40 * k, 380 * k);
-        float top = menuRect.centerY() - (2 * bh + gap) / 2;
+        float top = menuRect.centerY() - (labels.length * bh + (labels.length - 1) * gap) / 2;
         for (int i = 0; i < labels.length; i++) {
             cell.set(menuRect.centerX() - bw / 2, top + i * (bh + gap), menuRect.centerX() + bw / 2, top + i * (bh + gap) + bh);
             boolean on = i == menuIndex;
@@ -2824,7 +2828,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private void hold() {
         if (sheetOpen) toggleShelf();
-        else if (canRemoveWatched()) removeWatched();
         else if (heldPick() != null) openPickMenu();
         else startReorder();
     }
@@ -4102,17 +4105,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (!opened) showToast(Ui.trf("Couldn't open {app}.", "app", "YouTube"));
     }
 
-    /** Holding OK on a Continue watching card takes it off the row. */
+    /** Holding OK on a Continue watching card opens its menu, whose Remove takes it off the row (playing it brings it back). */
     private boolean canRemoveWatched() {
         return !sheetOpen && zone == Z_CARDS && tab == WATCH_TAB && cardIndex < cards.size();
     }
 
-    private void removeWatched() {
-        handler.removeCallbacks(holdStart);
-        holdArmed = false;
-        if (!canRemoveWatched()) return;
-        okHeld = true;
-        final Recs.Pick p = cards.get(cardIndex);
+    private void removeWatched(final Recs.Pick p) {
         final Context c = getContext().getApplicationContext();
         click.open();
         LOADER.execute(() -> {
