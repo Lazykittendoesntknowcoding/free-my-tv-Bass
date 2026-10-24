@@ -3601,6 +3601,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      */
     private void drawPickRows(Canvas c) {
         rowFrame++;
+        rowPictureMade = rowPicturesBehind = false;
         c.save();
         // Above the dock, or down to the screen's foot once it has gone.
         float bottom = (L_PLATTER_TOP - 8) * k + (h - (L_PLATTER_TOP - 8) * k) * Ui.clamp(dockAway.value);
@@ -3613,6 +3614,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (lifted >= 0) drawPickRow(c, lifted, bottom);
         drawRowMenu(c);
         c.restore();
+        if (rowPicturesBehind) heroLayer.postInvalidateOnAnimation();   // the next frame makes the next one
     }
 
     private void drawPickRow(Canvas c, int r, float bottom) {
@@ -3666,6 +3668,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final RowPicture[] rowPictures = new RowPicture[ROW_PICTURES];
     private final Paint rowPicturePaint = new Paint();
     private int rowFrame;
+    private boolean rowPictureMade, rowPicturesBehind;   // one made this frame; others wait for the next ones
 
     /** Draws the row from its picture, drawing that first if the row changed; false when there's none to be had. */
     private boolean drawRestingRow(Canvas c, TitleRow row, int r, float top) {
@@ -3693,7 +3696,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         // What it shows: its titles and pictures, the light or dark look, and the language of its heading.
         long stamp = ((long) row.version * 31 + Float.floatToIntBits(dark())) * 31 + Ui.generation;
-        if (pic.stamp != stamp) {
+        boolean calm = rowsScroll.settled() && (rowIndex >= pickRows.size() || pickRows.get(rowIndex).still);
+        if (pic.stamp != stamp && (rowPictureMade || !calm)) {
+            // Making one takes a frame's time: never while anything slides (the rows, or along the current one), and
+            // one per frame once all is still, where a long frame doesn't show.
+            rowPicturesBehind = true;
+            if (pic.stamp == -1) return false;      // none yet: drawn live meanwhile
+        } else if (pic.stamp != stamp) {
+            rowPictureMade = true;
             pic.bitmap.eraseColor(0);
             pic.canvas.save();
             pic.canvas.translate(0, -top);
