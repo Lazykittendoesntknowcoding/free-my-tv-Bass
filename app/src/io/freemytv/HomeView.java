@@ -163,7 +163,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final List<TitleRow> pickRows = new ArrayList<>();
     private int rowIndex;
     private final Spring rowsScroll = new Spring(0.4f, 0.9f, 0);
-    // ← on a row's first title: Move and Hide beside the row (it slides aside for them). Move lifts the row: ↑ ↓ carry
+    // ← held 3 s on a row's first title: Move and Hide beside the row (it slides aside for them). Move lifts the row: ↑ ↓ carry
     // it, pinned at the top while the others slide past, OK drops it, Back puts it back. Saved in Prefs per tab.
     private static final float ROW_MENU_W = 250, ROW_MENU_BH = 64, ROW_MENU_GAP = 16;
     private boolean rowMenu, rowMoving, rowMenuOk;
@@ -2161,9 +2161,19 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             holdArmed = false;      // another key while OK is held: no move mode
             handler.removeCallbacks(holdStart);
         }
+        if (down && code != KeyEvent.KEYCODE_DPAD_LEFT) cancelRowMenuHold();
         switch (code) {
             case KeyEvent.KEYCODE_DPAD_LEFT:
-                if (down) move(-1, 0);
+                if (down) {
+                    move(-1, 0);
+                    // Held on a row's first title for ROW_MENU_HOLD_MS: Move and Hide.
+                    if (!leftHeld && atRowStart()) {
+                        leftHeld = true;
+                        handler.postDelayed(rowMenuHold, ROW_MENU_HOLD_MS);
+                    }
+                } else {
+                    cancelRowMenuHold();
+                }
                 return true;
             case KeyEvent.KEYCODE_DPAD_RIGHT:
                 if (down) move(1, 0);
@@ -2652,6 +2662,23 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         return TAB_KIND[tab] == null ? "all" : TAB_KIND[tab];
     }
 
+    private static final long ROW_MENU_HOLD_MS = 3000;
+    private boolean leftHeld;
+    private final Runnable rowMenuHold = () -> {
+        leftHeld = false;
+        if (atRowStart()) openRowMenu();
+    };
+
+    private boolean atRowStart() {
+        return tab != WATCH_TAB && zone == Z_CARDS && !sheetOpen && !rowMenu && !rowMoving && cardIndex == 0
+                && !pickRows.isEmpty();
+    }
+
+    private void cancelRowMenuHold() {
+        leftHeld = false;
+        handler.removeCallbacks(rowMenuHold);
+    }
+
     private void openRowMenu() {
         if (pickRows.isEmpty()) return;
         rowMenu = true;
@@ -2812,6 +2839,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** Leaving the home screen or the tab: a menu closes, a lifted row goes back. */
     private void endRowEdit() {
+        cancelRowMenuHold();
         if (rowMoving) cancelRowMove();
         if (rowMenu) {
             rowMenu = false;
@@ -4153,10 +4181,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             case Z_CARDS:
                 if (dx != 0) {
                     int next = Math.max(0, Math.min(cards.size() - 1, cardIndex + dx));
-                    if (next == cardIndex) {
-                        if (dx < 0 && tab != WATCH_TAB) openRowMenu();
-                        return true;
-                    }
+                    if (next == cardIndex) return true;     // (← held here opens the row menu: onKey)
                     if (!cardReady(next)) return true;   // its picture is still loading: the focus waits for it
                     cardIndex = next;
                 } else if (tab != WATCH_TAB && rowIndex + dy >= 0 && rowIndex + dy < pickRows.size()) {
