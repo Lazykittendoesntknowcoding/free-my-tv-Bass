@@ -645,23 +645,53 @@ final class Recs {
 
     // MARK: - Hidden and already watched
 
-    /** Titles hidden with "Not interested" (their keys), in their own file: a new cache version doesn't bring them back. */
+    /**
+     * Titles hidden with "Not interested" (their keys, oldest first), in their own file: a new cache version doesn't
+     * bring them back. One list for every tab and row. It keeps the newest HIDDEN_TITLES titles and HIDDEN_VIDEOS
+     * YouTube videos (a chart moves on in days), so it stays a few KB however long it's used.
+     */
     private Set<String> hiddenKeys;
+
+    private static final int HIDDEN_TITLES = 1000, HIDDEN_VIDEOS = 200;
 
     private synchronized Set<String> hidden() {
         if (hiddenKeys == null) {
-            hiddenKeys = new HashSet<>(context.getSharedPreferences("recs-hidden", Context.MODE_PRIVATE)
-                    .getStringSet("keys", new HashSet<>()));
+            android.content.SharedPreferences sp = context.getSharedPreferences("recs-hidden", Context.MODE_PRIVATE);
+            Set<String> keys = new java.util.LinkedHashSet<>();
+            for (String k : sp.getString("list", "").split("\n")) if (!k.isEmpty()) keys.add(k);
+            Set<String> old = sp.getStringSet("keys", null);   // builds before the cap kept an unordered set
+            if (old != null) {
+                keys.addAll(old);
+                sp.edit().remove("keys").putString("list", android.text.TextUtils.join("\n", keys)).apply();
+            }
+            hiddenKeys = keys;
         }
         return hiddenKeys;
     }
 
     /** "Not interested": the title doesn't show again, in any tab or row. */
     synchronized void hide(Pick p) {
-        Set<String> keys = new HashSet<>(hidden());
-        keys.add(key(p));
+        Set<String> keys = new java.util.LinkedHashSet<>(hidden());
+        String key = key(p);
+        keys.remove(key);
+        keys.add(key);    // the newest at the end
+        int titles = 0, videos = 0;
+        for (String k : keys) {
+            if (k.startsWith(YouTubeFeed.KIND + ":")) videos++; else titles++;
+        }
+        for (java.util.Iterator<String> it = keys.iterator(); it.hasNext() && (titles > HIDDEN_TITLES || videos > HIDDEN_VIDEOS); ) {
+            boolean video = it.next().startsWith(YouTubeFeed.KIND + ":");
+            if (video && videos > HIDDEN_VIDEOS) {
+                it.remove();
+                videos--;
+            } else if (!video && titles > HIDDEN_TITLES) {
+                it.remove();
+                titles--;
+            }
+        }
         hiddenKeys = keys;
-        context.getSharedPreferences("recs-hidden", Context.MODE_PRIVATE).edit().putStringSet("keys", keys).apply();
+        context.getSharedPreferences("recs-hidden", Context.MODE_PRIVATE).edit()
+                .putString("list", android.text.TextUtils.join("\n", keys)).apply();
         notifyListeners();
     }
 
