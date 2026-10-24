@@ -7,7 +7,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.media.MediaMetadata;
 import android.media.session.MediaController;
 import android.media.session.MediaSession;
@@ -19,11 +18,6 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.service.notification.NotificationListenerService;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -65,7 +59,8 @@ public class WatchListener extends NotificationListenerService implements MediaS
     private final class Tracked extends MediaController.Callback {
         final MediaController controller;
         long playingSince = -1, playedMs, savedAt, savedPosition = -1;
-        String key, artFor;
+        String key, linksFor, artFor;
+        int artMisses;
 
         Tracked(MediaController controller) {
             this.controller = controller;
@@ -223,51 +218,49 @@ public class WatchListener extends NotificationListenerService implements MediaS
             WatchHistory.art(app, key).delete();
             return;
         }
-        // The artwork once per title: a picture the app hands over, or one it links to.
         String artKey = key + "|" + title;
+        if (!artKey.equals(t.linksFor)) {
+            t.linksFor = artKey;
+            t.artMisses = 0;
+            if (WatchHistory.needsVideoId(e) && YouTubeFeed.on()) {
+                final String name = e.title, channel = e.subtitle;
+                io.execute(() -> findYouTubeVideo(app, key, linkFor, name, channel));
+            }
+            if (WatchHistory.isStremio(pkg)) {
+                final String name = e.title, episode = e.subtitle, id = e.mediaId + " " + e.mediaUri;
+                io.execute(() -> findStremioLink(app, key, linkFor, name, episode, id));
+            }
+        }
+        // The artwork once per title: a picture the app hands over, or one it links to. Apps often add it to their
+        // metadata a little after the title, so without one it's looked for again on the next updates, and only then
+        // found elsewhere (YouTube's thumbnail, TMDB's backdrop).
         if (artKey.equals(t.artFor)) return;
-        t.artFor = artKey;
-        if (WatchHistory.needsVideoId(e) && YouTubeFeed.on()) {
-            final String name = e.title, channel = e.subtitle;
-            io.execute(() -> findYouTubeVideo(app, key, linkFor, name, channel));
-        }
-        if (WatchHistory.isStremio(pkg)) {
-            final String name = e.title, episode = e.subtitle, id = e.mediaId + " " + e.mediaUri;
-            io.execute(() -> findStremioLink(app, key, linkFor, name, episode, id));
-        }
         Bitmap art = md.getBitmap(MediaMetadata.METADATA_KEY_ART);
         if (art == null) art = md.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
         if (art == null) art = md.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON);
         final Bitmap given = art == null ? null : art.copy(Bitmap.Config.ARGB_8888, false);
         final String link = text(md, MediaMetadata.METADATA_KEY_ART_URI, MediaMetadata.METADATA_KEY_ALBUM_ART_URI,
                 MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI);
-        io.execute(() -> saveArt(app, key, given, link));
+        final boolean elsewhere = given == null && link.isEmpty();
+        if (elsewhere && ++t.artMisses < 2) return;
+        t.artFor = artKey;
+        final String name = e.title, mediaId = e.mediaId;
+        io.execute(() -> saveArt(app, key, given, link, elsewhere ? name : null, pkg, mediaId));
     }
 
-    private static void saveArt(Context c, String key, Bitmap given, String link) {
+    /**
+     * Saves the title's picture: the one the app gave, or the one it links to. With `name` (the app gave none), a
+     * picture found for it instead, unless the title already has one (an earlier episode's).
+     */
+    private static void saveArt(Context c, String key, Bitmap given, String link, String name, String pkg, String mediaId) {
         Bitmap b = given;
-        try {
-            if (b == null && link.startsWith("https://")) {
-                HttpURLConnection conn = (HttpURLConnection) new URL(link).openConnection();
-                conn.setConnectTimeout(8000);
-                conn.setReadTimeout(8000);
-                try (InputStream in = conn.getInputStream()) {
-                    b = BitmapFactory.decodeStream(in);
-                } finally {
-                    conn.disconnect();
-                }
-            }
-            if (b == null) return;
-            // Cards are about 330 px wide on a 1080p screen: 480 is plenty.
-            if (b.getWidth() > 480) b = Bitmap.createScaledBitmap(b, 480, Math.max(1, Math.round(b.getHeight() * 480f / b.getWidth())), true);
-            File f = WatchHistory.art(c, key), tmp = new File(f.getPath() + ".tmp");
-            try (FileOutputStream out = new FileOutputStream(tmp)) {
-                b.compress(Bitmap.CompressFormat.JPEG, 88, out);
-            }
-            if (!tmp.renameTo(f)) AppLog.w("continue watching: artwork not saved");
-        } catch (Exception e) {
-            AppLog.w("continue watching artwork: " + e.getMessage());
+        if (b == null && !link.isEmpty()) b = WatchHistory.download(c, link);
+        if (b == null && name != null) {
+            WatchHistory.findArt(c, key, name, pkg, mediaId);
+            return;
         }
+        if (b == null) AppLog.w("continue watching: no picture for " + key);
+        else WatchHistory.saveArt(c, key, b);
     }
 
     /** Finds the YouTube video's ID (YouTubeFeed.findVideo), once per video, and keeps its link with the entry. */
