@@ -2460,10 +2460,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (sheetOpen) return null;
         if (zone == Z_HERO) return currentPick();
         if (canRemoveWatched()) return cards.get(cardIndex);
-        if (zone == Z_CARDS && tab != WATCH_TAB && cardIndex < cards.size()) {
-            Recs.Pick p = cards.get(cardIndex);
-            return YouTubeFeed.KIND.equals(p.kind) ? null : p;   // no trailer or "not interested" for a video
-        }
+        if (zone == Z_CARDS && tab != WATCH_TAB && cardIndex < cards.size()) return cards.get(cardIndex);
         return null;
     }
 
@@ -2533,7 +2530,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
     }
 
-    // MARK: - Holding OK on a pick: a small menu over its card (Watch trailer, Not interested; Remove on Continue watching)
+    // MARK: - Holding OK on a pick: a small menu over its card (Watch trailer, Not interested; a YouTube video has no
+    // trailer; Remove on Continue watching)
 
     private void openPickMenu() {
         handler.removeCallbacks(holdStart);
@@ -2559,6 +2557,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private String[] menuLabels() {
         if (menuPick != null && "watch".equals(menuPick.kind)) return new String[] {Ui.tr("Remove")};
+        if (menuPick != null && YouTubeFeed.KIND.equals(menuPick.kind)) return new String[] {Ui.tr("Not interested")};
         return new String[] {Ui.tr("Watch trailer"), Ui.tr("Not interested")};
     }
 
@@ -2605,7 +2604,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (p == null) return;
         if ("watch".equals(p.kind)) {
             removeWatched(p);
-        } else if (menuIndex == 0) {
+        } else if (menuIndex == 0 && !YouTubeFeed.KIND.equals(p.kind)) {
             playTrailer(p);
         } else {
             click.open();
