@@ -109,6 +109,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final float WATCH_GROW = 0.5f;
     /** The picks tabs' rows: one under another (the current one at the top, the next peeking below), ROW_PITCH apart. */
     private static final float ROW_PITCH = 440, ROW_HEADING = 28, ROW_CARDS = 56, PICK_GROW = 0.50f;
+    // A card's corner radius; a resting row's picture reaches this far below its cards (their shadows).
+    private static final float CARD_RADIUS = 16, ROW_PICTURE_FOOT = 72;
     /** The picks tabs' background comes from the selected card once it has stayed selected this long. */
     private static final long BACKDROP_WAIT_MS = 5000;
     /** The rows' pictures load here (they may download first), apart from the shelf's. */
@@ -3404,7 +3406,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         int below = (int) Math.ceil((h / k - L_CARDS_TOP - ROW_CARDS) / ROW_PITCH) - 1;
         for (int r = 0; r < pickRows.size(); r++) {
             int around = r - rowIndex >= -1 && r - rowIndex <= below + 1 ? TitleRow.AROUND : -1;
-            pickRows.get(r).load(around, pw, ph, recs::cardImage);
+            pickRows.get(r).load(around, pw, ph, CARD_RADIUS * k * (1 + PICK_GROW), recs::cardImage);
         }
     }
 
@@ -3487,6 +3489,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         watchScroll.snap(0);
         for (TitleRow row : pickRows) row.clear();    // another tab's rows make way, pictures and all
         pickRows.clear();
+        if (tab == WATCH_TAB) dropRowPictures();
         rowsScroll.snap(0);
         dockAway.target = tab == WATCH_TAB ? 0 : 1;
         motionDirty = true;
@@ -3597,6 +3600,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      * the focused card drawn last so it grows over its neighbours.
      */
     private void drawPickRows(Canvas c) {
+        rowFrame++;
         c.save();
         // Above the dock, or down to the screen's foot once it has gone.
         float bottom = (L_PLATTER_TOP - 8) * k + (h - (L_PLATTER_TOP - 8) * k) * Ui.clamp(dockAway.value);
@@ -3615,6 +3619,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         TitleRow row = pickRows.get(r);
         float top = rowTop(r);
         if (top > bottom || top + ROW_PITCH * k < L_TABBAR_TOP * k) return;
+        // Android 8 to 11 draw without GPU layers: every card of every row, each frame of a slide, was too much for
+        // them (30 fps). A row at rest is drawn once into a picture of its own; only the moving ones are drawn live.
+        boolean resting = Ui.LEGACY && row.still && r != rowIndex && !(row == menuRow && (rowMoving || rowMenuOpen.value > 0.001f));
+        if (resting && drawRestingRow(c, row, r, top)) return;
+        drawRowContent(c, row, r, top);
+    }
+
+    private void drawRowContent(Canvas c, TitleRow row, int r, float top) {
         if (!row.title.isEmpty()) {
             float x = MARGIN * k - Ui.leftBearing(lCardTitle, row.title), base = top + ROW_HEADING * k;
             if (rowMoving && row == menuRow) {
@@ -3639,6 +3651,70 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         for (int i = 0; i < n; i++) if (i != focused) drawLightCard(c, row, r, i);
         if (focused >= 0) drawLightCard(c, row, r, focused);
+    }
+
+    /** A resting row's picture: the heading and the cards, down to the cards' shadows. */
+    private static final class RowPicture {
+        TitleRow owner;
+        Bitmap bitmap;
+        Canvas canvas;
+        long stamp = -1;
+        int frame;
+    }
+
+    private static final int ROW_PICTURES = 6;   // more rows than the screen holds, so none waits for a free one
+    private final RowPicture[] rowPictures = new RowPicture[ROW_PICTURES];
+    private final Paint rowPicturePaint = new Paint();
+    private int rowFrame;
+
+    /** Draws the row from its picture, drawing that first if the row changed; false when there's none to be had. */
+    private boolean drawRestingRow(Canvas c, TitleRow row, int r, float top) {
+        if (row.rects.length == 0) return false;
+        int ph = Math.round(ROW_CARDS * k + row.rects[0].height() + ROW_PICTURE_FOOT * k);
+        RowPicture pic = null, free = null;
+        for (int i = 0; i < ROW_PICTURES; i++) {
+            RowPicture p = rowPictures[i];
+            if (p == null) p = rowPictures[i] = new RowPicture();
+            if (p.owner == row) pic = p;
+            else if (free == null && (p.owner == null || p.frame < rowFrame - 1)) free = p;   // not drawn last frame
+        }
+        if (pic == null) {
+            if (free == null) return false;
+            pic = free;
+            pic.owner = row;
+            pic.stamp = -1;
+        }
+        pic.frame = rowFrame;
+        if (pic.bitmap == null || pic.bitmap.getWidth() != w || pic.bitmap.getHeight() != ph) {
+            if (pic.bitmap != null) pic.bitmap.recycle();
+            pic.bitmap = Bitmap.createBitmap(w, ph, Bitmap.Config.ARGB_8888);
+            pic.canvas = new Canvas(pic.bitmap);
+            pic.stamp = -1;
+        }
+        // What it shows: its titles and pictures, the light or dark look, and the language of its heading.
+        long stamp = ((long) row.version * 31 + Float.floatToIntBits(dark())) * 31 + Ui.generation;
+        if (pic.stamp != stamp) {
+            pic.bitmap.eraseColor(0);
+            pic.canvas.save();
+            pic.canvas.translate(0, -top);
+            drawRowContent(pic.canvas, row, r, top);
+            pic.canvas.restore();
+            pic.stamp = stamp;
+        }
+        c.drawBitmap(pic.bitmap, 0, top, rowPicturePaint);
+        return true;
+    }
+
+    /** Off the picks tabs, the rows' pictures go. */
+    private void dropRowPictures() {
+        for (int i = 0; i < ROW_PICTURES; i++) {
+            RowPicture p = rowPictures[i];
+            if (p == null || p.bitmap == null) continue;
+            p.bitmap.recycle();
+            p.bitmap = null;
+            p.canvas = null;
+            p.owner = null;
+        }
     }
 
     private static String[] rowMenuLabels() {
@@ -3709,7 +3785,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (base.right < -base.width() * 0.1f || base.left > w) return;   // scrolled out of sight
         Recs.Pick p = row.items.get(i);
         float v = row.focus[i].value, f = Ui.clamp(v), s = 1 + PICK_GROW * v;
-        float bw = base.width(), bh = base.height(), r0 = 16 * k;
+        float bw = base.width(), bh = base.height(), r0 = CARD_RADIUS * k;
         // It grows from its top edge (the row's heading stays clear) and rises a little.
         float cx = base.centerX(), cy = base.centerY() + bh * (s - 1) / 2 - 8 * k * v;
         cell.set(cx - bw * s / 2, cy - bh * s / 2, cx + bw * s / 2, cy + bh * s / 2);
@@ -3725,7 +3801,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             shadowDeep.setColor(Ui.alpha(0xFF000000, tone(0.14f, 0.32f) + tone(0.2f, 0.28f) * f));
             shadows.draw(c, tmp, r0, DEEP_BLUR * k, shadowDeep);
             c.restore();
-            roundImage(c, img, cell, r);
+            c.drawBitmap(img, null, cell, bitmapPaint);   // its corners are already rounded (TitleRow.cut)
         }
         if (f > 0.01f && img != null) {
             // Every card has the same size: one sheen and one rim serve them all.

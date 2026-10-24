@@ -2,10 +2,12 @@ package io.freemytv;
 
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.BitmapShader;
 import android.graphics.Canvas;
+import android.graphics.Matrix;
 import android.graphics.Paint;
-import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.Shader;
 import android.os.Handler;
 import android.os.Looper;
 
@@ -23,7 +25,8 @@ import java.util.concurrent.Executor;
  * One sideways row of titles on the picks tabs ("Trending now"...): its cards, the selected one, how far it has slid,
  * and the pictures of only the cards around the screen: 7, the 5 on screen and one on each side. Moving along loads
  * the next one in the background before it slides in and lets go of the ones left behind. Each picture is cut once to
- * the focused card's size and kept in GPU memory.
+ * the focused card's size with its rounded corners (one plain draw per card), and kept in GPU memory (in the app's
+ * memory on Android 8 to 11, where resting rows are drawn into a picture of their own, see HomeView.drawPickRow).
  */
 final class TitleRow {
     static final int VISIBLE = 5, AROUND = 1;
@@ -38,6 +41,8 @@ final class TitleRow {
     final Spring scroll = new Spring(0.38f, 0.9f, 0);       // the first card on screen (in cards)
     Spring[] focus = new Spring[0], label = new Spring[0];
     RectF[] rects = new RectF[0];
+    int version;            // goes up when what a resting row shows changes: its heading, titles or pictures
+    boolean still;          // nothing moved in the last step: the row can be drawn from a picture of itself
 
     private final Executor loader;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -47,6 +52,7 @@ final class TitleRow {
     private final Set<String> failed = new HashSet<>();     // no picture to be had: the card can be selected anyway
     private volatile Set<String> wanted = Collections.emptySet();
     private int width, height;
+    private float radius;
 
     TitleRow(Executor loader, Runnable changed) {
         this.loader = loader;
@@ -59,7 +65,9 @@ final class TitleRow {
         this.kind = kind;
         boolean same = list.size() == items.size();
         for (int i = 0; same && i < list.size(); i++) same = Recs.key(list.get(i)).equals(Recs.key(items.get(i)));
-        title = heading == null ? "" : heading;
+        String head = heading == null ? "" : heading;
+        if (!head.equals(title)) version++;
+        title = head;
         if (same) {
             items = list;   // the same titles, maybe with more details
             return false;
@@ -69,6 +77,7 @@ final class TitleRow {
         for (int i = 0; selected != null && i < list.size(); i++) if (Recs.key(list.get(i)).equals(selected)) at = i;
         index = at >= 0 ? at : Math.min(index, Math.max(0, list.size() - 1));
         items = list;
+        version++;
         if (focus.length < list.size()) {
             Spring[] f = new Spring[list.size()], l = new Spring[list.size()];
             RectF[] r = new RectF[list.size()];
@@ -113,6 +122,7 @@ final class TitleRow {
         boolean moving = scroll.step(dt);
         for (Spring s : focus) moving |= s.step(dt);
         for (Spring s : label) moving |= s.step(dt);
+        still = !moving;
         return moving;
     }
 
@@ -179,13 +189,16 @@ final class TitleRow {
     /**
      * Keeps the pictures of the cards on screen and `around` cards on each side of them, at w × h, and loads what's
      * missing: the ones on screen first, then the ones ahead, then the ones behind. around < 0: none (off screen).
+     * Corners are rounded by `r` (at w × h).
      */
-    void load(int around, int w, int h, Source source) {
+    void load(int around, int w, int h, float r, Source source) {
         if (w < 16 || h < 16) return;
-        if (w != width || h != height) {
+        if (w != width || h != height || r != radius) {
             art.clear();    // another size: cut again
             width = w;
             height = h;
+            radius = r;
+            version++;
         }
         List<Recs.Pick> order = new ArrayList<>();
         if (around >= 0) {
@@ -197,15 +210,16 @@ final class TitleRow {
         Set<String> keep = new HashSet<>();
         for (Recs.Pick p : order) keep.add(Recs.key(p));
         wanted = keep;
-        art.keySet().retainAll(keep);
+        if (art.keySet().retainAll(keep)) version++;
         for (final Recs.Pick p : order) {
             final String key = Recs.key(p);
             if (art.containsKey(key) || failed.contains(key) || !loading.add(key)) continue;
             loader.execute(() -> {
-                Bitmap cut = wanted.contains(key) ? cut(source.file(p), w, h) : null;   // scrolled away: skipped
+                Bitmap cut = wanted.contains(key) ? cut(source.file(p), w, h, r) : null;   // scrolled away: skipped
                 main.post(() -> {
                     loading.remove(key);
                     if (!wanted.contains(key) || w != width || h != height) return;
+                    version++;
                     if (cut == null) {
                         failed.add(key);
                         changed.run();
@@ -222,10 +236,11 @@ final class TitleRow {
         wanted = Collections.emptySet();
         art.clear();
         failed.clear();
+        version++;
     }
 
-    /** The center of the picture at w × h, decoded no bigger than needed, in GPU memory. */
-    private static Bitmap cut(File f, int w, int h) {
+    /** The center of the picture at w × h with corners rounded by r, decoded no bigger than needed. */
+    private static Bitmap cut(File f, int w, int h, float r) {
         if (f == null || !f.exists()) return null;
         try {
             BitmapFactory.Options bounds = new BitmapFactory.Options();
@@ -238,13 +253,18 @@ final class TitleRow {
             Bitmap b = BitmapFactory.decodeFile(f.getPath(), opts);
             if (b == null) return null;
             float scale = Math.max(w / (float) b.getWidth(), h / (float) b.getHeight());
-            int sw = Math.round(w / scale), sh = Math.round(h / scale);
-            int x = (b.getWidth() - sw) / 2, y = (b.getHeight() - sh) / 2;
+            BitmapShader shader = new BitmapShader(b, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+            Matrix m = new Matrix();
+            m.setScale(scale, scale);
+            m.postTranslate((w - b.getWidth() * scale) / 2, (h - b.getHeight() * scale) / 2);
+            shader.setLocalMatrix(m);
+            Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
+            paint.setShader(shader);
             Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-            new Canvas(out).drawBitmap(b, new Rect(x, y, x + sw, y + sh), new Rect(0, 0, w, h),
-                    new Paint(Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG));
+            new Canvas(out).drawRoundRect(new RectF(0, 0, w, h), r, r, paint);
             b.recycle();
-            return Backdrop.gpu(out);
+            // Android 8 to 11 draw resting rows in software (HomeView.drawPickRow), which can't read GPU pictures.
+            return Ui.LEGACY ? out : Backdrop.gpu(out);
         } catch (RuntimeException | OutOfMemoryError e) {
             AppLog.w("row picture: " + e);
             return null;
